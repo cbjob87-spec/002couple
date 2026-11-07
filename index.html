@@ -30,6 +30,13 @@
             <span id="zoneLabel">고속터미널</span>
           </div>
           <div class="hint">← → 이동 · Z/스페이스 점프 · R 재시작</div>
+          <div id="audioPanel" class="audio-panel" aria-label="오디오 설정">
+            <label class="audio-item"><input type="checkbox" id="bgmToggle" checked /> BGM</label>
+            <label class="audio-item"><input type="range" id="bgmVol" min="0" max="100" value="22" /> </label>
+            <label class="audio-item"><input type="checkbox" id="sfxToggle" checked /> 효과음</label>
+            <label class="audio-item"><input type="range" id="sfxVol" min="0" max="100" value="55" /> </label>
+            <div id="bgmHint" class="bgm-hint">BGM 대기: 어바웃 타임 OST</div>
+          </div>
         </div>
 
         <div id="touchPad" class="touch-pad" aria-hidden="false">

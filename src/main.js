@@ -1,13 +1,26 @@
 /**
  * 002couple — visual redesign (gameplay preserved)
  * Memories = large street billboards. Scale by opaque content bounds.
+ * Characters: shared body-height scale + per-image foot anchors (no pad-as-feet).
  */
+
+import {
+  unlockAudio,
+  ensureBgmPlaying,
+  playJump,
+  playHeal,
+  setBgmOn,
+  setSfxOn,
+  setBgmVolume,
+  setSfxVolume,
+  getAudioPrefs,
+  audioNeededBgmLabel,
+} from './audio.js';
 
 const W = 960;
 const H = 540;
-const GROUND_Y = Math.round(H * 0.8); // ≈80% from top
-const PLAYER_H = Math.round(H * 0.165); // 15–18% of H
-const PLAYER_W = Math.round(PLAYER_H * 0.78);
+/** Align with season BG road (not mid-air above the painted street). */
+const GROUND_Y = Math.round(H * 0.865);
 const BILLBOARD_H = Math.round(H * 0.6); // 55–65% of H
 const GRAVITY = 0.55;
 const MOVE_SPEED = 3.6;
@@ -19,6 +32,80 @@ const HUG_FRAME_MS = 700;
 const ENDING_TRIGGER_DIST = 160;
 const CLOSE_STEP = 40;
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
+
+/**
+ * Shared standing body height for 볼빵이 (head→feet).
+ * Ears / flowers / dress flare are excluded from the match target.
+ */
+const CHARACTER_BODY_H = Math.round(H * 0.235);
+
+const PLAYER_CELL = { cols: 5, rows: 3, fw: 323, fh: 323 };
+/** Per-frame foot/body metrics in cell pixels (idle frame 0 is scale reference). */
+const PLAYER_FRAMES = [
+  { footY: 303, headTop: 33, bodyH: 271, bodyCx: 179, torsoW: 189, headW: 139 },
+  { footY: 304, headTop: 33, bodyH: 272, bodyCx: 165, torsoW: 190, headW: 141 },
+  { footY: 307, headTop: 34, bodyH: 274, bodyCx: 145, torsoW: 186, headW: 137 },
+  { footY: 304, headTop: 31, bodyH: 274, bodyCx: 164, torsoW: 189, headW: 136 },
+  { footY: 305, headTop: 33, bodyH: 273, bodyCx: 118, torsoW: 189, headW: 136 },
+  { footY: 293, headTop: 28, bodyH: 266, bodyCx: 173, torsoW: 212, headW: 148 },
+  { footY: 278, headTop: 22, bodyH: 257, bodyCx: 168, torsoW: 223, headW: 148 },
+  { footY: 322, headTop: 27, bodyH: 296, bodyCx: 158, torsoW: 217, headW: 153 },
+  { footY: 275, headTop: 24, bodyH: 252, bodyCx: 149, torsoW: 231, headW: 143 },
+  { footY: 296, headTop: 61, bodyH: 236, bodyCx: 135, torsoW: 207, headW: 152 },
+  { footY: 290, headTop: 26, bodyH: 265, bodyCx: 181, torsoW: 228, headW: 143 },
+  { footY: 255, headTop: 8, bodyH: 248, bodyCx: 179, torsoW: 231, headW: 129 },
+  { footY: 234, headTop: 0, bodyH: 235, bodyCx: 156, torsoW: 233, headW: 133 },
+  { footY: 283, headTop: 20, bodyH: 264, bodyCx: 166, torsoW: 222, headW: 146 },
+  { footY: 299, headTop: 62, bodyH: 238, bodyCx: 125, torsoW: 198, headW: 136 },
+];
+const PLAYER_REF = PLAYER_FRAMES[0];
+/** Solid body height (drop-shadow under paws excluded). */
+const BOL_REF_BODY_H = 981;
+const BOL_SCALE = CHARACTER_BODY_H / BOL_REF_BODY_H;
+/** Body-height match to 볼빵이 (+10% after dress/ears excluded from the target). */
+const PLAYER_SCALE = (CHARACTER_BODY_H / PLAYER_REF.bodyH) * 1.1;
+const PLAYER_H = Math.round(PLAYER_REF.bodyH * PLAYER_SCALE);
+const PLAYER_W = Math.round(PLAYER_REF.torsoW * PLAYER_SCALE * 0.82);
+
+/** 볼빵이 — scale from behind pose body (flowers excluded from scale match). */
+const BOL = {
+  behind: {
+    key: 'bolBehind',
+    fw: 1254,
+    fh: 1254,
+    // Solid paw line — NOT the soft drop-shadow tip (was +13px → false float)
+    footY: 1119,
+    headTop: 139,
+    bodyH: 981,
+    bodyCx: 632,
+    torsoW: 734,
+    headW: 434,
+  },
+  front: {
+    key: 'bolFront',
+    fw: 1312,
+    fh: 1199,
+    footY: 1139,
+    headTop: 73,
+    bodyH: 1067,
+    bodyCx: 638,
+    torsoW: 778,
+    headW: 553,
+  },
+};
+
+const HUG_CELL = { cols: 4, rows: 1, fw: 543, fh: 724 };
+/**
+ * Pair sheet — scale so frame0 character body height ≈ player/bol body world height.
+ * Do not fit the full pair width to one character width.
+ */
+const HUG_FRAMES = [
+  { footY: 525, headTop: 251, bodyH: 275, bodyCx: 281, torsoW: 438 },
+  { footY: 526, headTop: 224, bodyH: 303, bodyCx: 269, torsoW: 483 },
+  { footY: 529, headTop: 243, bodyH: 287, bodyCx: 275, torsoW: 406 },
+  { footY: 529, headTop: 157, bodyH: 373, bodyCx: 265, torsoW: 382 },
+];
+const HUG_SCALE = PLAYER_H / HUG_FRAMES[0].bodyH;
 
 const ASSETS = {
   playerSheet: 'boltongi-walk-jump.png',
@@ -209,6 +296,45 @@ function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false) {
   ctx.restore();
 }
 
+/**
+ * Draw a sheet frame with fixed world scale + foot anchor.
+ * feetWorldX/Y = where the source footY pixel should land in world space.
+ */
+function drawSheetAtFeet(img, cols, rows, index, meta, scale, feetWorldX, feetWorldY, camX, flip = false) {
+  if (!img || !meta) return null;
+  const fw = img.width / cols;
+  const fh = img.height / rows;
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  const w = fw * scale;
+  const h = fh * scale;
+  const dx = feetWorldX - meta.bodyCx * scale - camX;
+  // footY row sits on the ground line (no +1 pad that lifts the sprite)
+  const dy = feetWorldY - meta.footY * scale;
+  ctx.save();
+  if (flip) {
+    const pivot = feetWorldX - camX;
+    ctx.translate(pivot, dy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, col * fw, row * fh, fw, fh, -(meta.bodyCx * scale), 0, w, h);
+  } else {
+    ctx.drawImage(img, col * fw, row * fh, fw, fh, Math.round(dx), Math.round(dy), Math.round(w), Math.round(h));
+  }
+  ctx.restore();
+  return { w, h, dx, dy, scale };
+}
+
+/** Full image (not sheet) with foot anchor + fixed scale from body metrics. */
+function drawImageAtFeet(img, meta, scale, feetWorldX, feetWorldY, camX) {
+  if (!img || !meta) return null;
+  const w = meta.fw * scale;
+  const h = meta.fh * scale;
+  const dx = feetWorldX - meta.bodyCx * scale - camX;
+  const dy = feetWorldY - meta.footY * scale;
+  ctx.drawImage(img, Math.round(dx), Math.round(dy), Math.round(w), Math.round(h));
+  return { w, h, dx, dy, scale };
+}
+
 function aabb(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
@@ -260,14 +386,16 @@ function createState(mode = 'normal') {
     return betweenSpot(memories, afterIndex, 0.5) - 40;
   }
 
+  const exH = Math.round(PLAYER_H * 1.15);
+  const exW = Math.round(exH * 0.85);
   const exercises = [
     {
       id: 'tm',
       type: 'treadmill',
       x: gapHazardX(3), // between 레미제라블 → 반창꼬
-      y: GROUND_Y - 110,
-      w: 88,
-      h: 110,
+      y: GROUND_Y - exH,
+      w: exW,
+      h: exH,
       used: false,
       playing: false,
       frame: 0,
@@ -282,9 +410,9 @@ function createState(mode = 'normal') {
       id: 'bk',
       type: 'bike',
       x: gapHazardX(9), // between 패러글라이딩 → 미스터 션샤인
-      y: GROUND_Y - 110,
-      w: 88,
-      h: 110,
+      y: GROUND_Y - exH,
+      w: exW,
+      h: exH,
       used: false,
       playing: false,
       frame: 0,
@@ -335,10 +463,11 @@ function createState(mode = 'normal') {
     exercises,
     ending: {
       phase: 'idle',
-      bolX: wedding.cx + 70,
-      bolY: GROUND_Y - Math.round(H * 0.2),
-      bolW: Math.round(H * 0.18),
-      bolH: Math.round(H * 0.2),
+      bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85),
+      bolFeetY: GROUND_Y,
+      bolScale: BOL_SCALE,
+      playerScale: PLAYER_SCALE,
+      hugScale: HUG_SCALE,
       weddingCx: wedding.cx,
       timer: 0,
       hugFrame: 0,
@@ -346,6 +475,7 @@ function createState(mode = 'normal') {
       inputLocked: false,
       damageLocked: false,
       hideIndividuals: false,
+      hugAnchorX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.35),
     },
     now: performance.now(),
     floatMsgs: [],
@@ -370,6 +500,13 @@ function startGame(mode = 'normal') {
   state = createState(mode);
   hideOverlay();
   updateHud();
+  ensureBgmPlaying();
+}
+
+async function startFromButton(mode = 'normal') {
+  await unlockAudio();
+  syncAudioUi();
+  startGame(mode);
 }
 
 function currentMemoryLabel() {
@@ -459,16 +596,21 @@ function finishExercise(ex) {
 
 function triggerEndingApproach() {
   const e = state.ending;
+  const p = state.player;
   if (e.phase !== 'idle') return;
+  // Only begin ending when boltongi is planted on the ground
+  if (!p.onGround) return;
   e.phase = 'approach';
   e.inputLocked = true;
   e.damageLocked = true;
   state.cameraLock = true;
-  state.player.vx = 0;
-  state.player.vy = 0;
-  state.player.onGround = true;
-  state.player.y = GROUND_Y - state.player.h;
-  state.player.facing = 1;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.y = GROUND_Y - p.h;
+  p.facing = 1;
+  e.bolFeetY = GROUND_Y;
+  e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
 }
 
 function updateEnding(dt) {
@@ -477,12 +619,18 @@ function updateEnding(dt) {
 
   if (e.phase === 'idle') {
     const dx = e.bolX - (p.x + p.w);
-    if (dx < ENDING_TRIGGER_DIST && dx > -60) triggerEndingApproach();
+    if (dx < ENDING_TRIGGER_DIST && dx > -60 && p.onGround) triggerEndingApproach();
     return;
   }
 
+  // Keep both characters locked to the same ground plane during ending
+  p.vy = 0;
+  p.onGround = true;
+  p.y = GROUND_Y - p.h;
+  e.bolFeetY = GROUND_Y;
+
   if (e.phase === 'approach') {
-    const target = e.bolX - 100;
+    const target = e.bolX - Math.round(CHARACTER_BODY_H * 0.95);
     if (p.x < target) {
       p.x += MOVE_SPEED * 0.85;
       p.facing = 1;
@@ -498,6 +646,7 @@ function updateEnding(dt) {
       p.frame = 0;
       e.phase = 'flower';
       e.timer = 0;
+      e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
     }
     return;
   }
@@ -512,7 +661,7 @@ function updateEnding(dt) {
   }
 
   if (e.phase === 'step') {
-    const target = e.bolX - 100 + CLOSE_STEP;
+    const target = e.bolX - Math.round(CHARACTER_BODY_H * 0.95) + CLOSE_STEP;
     if (p.x < target) {
       p.x += MOVE_SPEED * 0.7;
       p.anim = 'walk';
@@ -527,6 +676,8 @@ function updateEnding(dt) {
       e.hideIndividuals = true;
       e.hugFrame = 0;
       e.hugTimer = 0;
+      // Hug is a two-person plate — anchor between left(볼떵이) and right(볼빵이)
+      e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
     }
     return;
   }
@@ -579,6 +730,7 @@ function update(dt) {
       p.vy = JUMP_V;
       p.onGround = false;
       jumpQueued = false;
+      playJump();
     } else if (p.onGround) {
       jumpQueued = false;
     }
@@ -619,6 +771,7 @@ function update(dt) {
       if (f.taken) continue;
       if (aabb({ x: p.x + 8, y: p.y + 8, w: p.w - 16, h: p.h - 8 }, f)) {
         f.taken = true;
+        playHeal();
         if (state.hearts < MAX_HEARTS) {
           state.hearts += 1;
           pushMsg('+1 하트', f.x, f.y - 10);
@@ -724,49 +877,51 @@ function seasonIndex() {
 }
 
 function drawGround() {
-  // Separate walk strip at GROUND_Y (~80%H); collision Y constant across seasons
+  // Walk surface top edge = GROUND_Y (feet land here). Collision Y constant across seasons.
   const si = seasonIndex();
-  let top;
+  let lip;
+  let path;
   let deep;
   let accent = null;
   if (si === 0) {
-    // winter — light snow sidewalk
-    top = '#e8eef5';
+    lip = '#d0dae8';
+    path = '#e8eef5';
     deep = '#b8c4d4';
-    accent = '#d0dae8';
+    accent = '#ffffff';
   } else if (si === 1 || si === 2) {
-    // spring + summer — warm gray path
-    top = '#9a948c';
-    deep = '#6e6860';
+    lip = '#6e6860';
+    path = '#9a948c';
+    deep = '#5a544c';
     accent = '#aea79e';
   } else {
-    // autumn — leaf-scattered stone
-    top = '#7a6a58';
+    lip = '#5a4a3a';
+    path = '#7a6a58';
     deep = '#4a3e32';
     accent = '#a07040';
   }
-  ctx.fillStyle = top;
-  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
-  ctx.fillStyle = deep;
-  ctx.fillRect(0, GROUND_Y, W, 3);
+  // Dark lip at exact foot line so characters don't look floated above a lower band
+  ctx.fillStyle = lip;
+  ctx.fillRect(0, GROUND_Y, W, 4);
+  ctx.fillStyle = path;
+  ctx.fillRect(0, GROUND_Y + 4, W, 24);
   for (let x = 0; x < W; x += 18) {
+    ctx.fillStyle = deep;
     ctx.fillRect(x, GROUND_Y + 14, 9, 2);
   }
   ctx.fillStyle = deep;
   ctx.fillRect(0, GROUND_Y + 28, W, H - GROUND_Y - 28);
-  // Seasonal detail pixels on the strip (not bg tiles)
   if (si === 0) {
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    for (let x = 8; x < W; x += 22) ctx.fillRect(x, GROUND_Y + 6, 3, 2);
+    for (let x = 8; x < W; x += 22) ctx.fillRect(x, GROUND_Y + 8, 3, 2);
   } else if (si === 3 && accent) {
     ctx.fillStyle = accent;
     for (let x = 12; x < W; x += 28) {
-      ctx.fillRect(x, GROUND_Y + 8, 4, 2);
-      ctx.fillRect(x + 10, GROUND_Y + 18, 3, 2);
+      ctx.fillRect(x, GROUND_Y + 10, 4, 2);
+      ctx.fillRect(x + 10, GROUND_Y + 20, 3, 2);
     }
   } else if (accent) {
     ctx.fillStyle = accent;
-    for (let x = 20; x < W; x += 40) ctx.fillRect(x, GROUND_Y + 10, 6, 1);
+    for (let x = 20; x < W; x += 40) ctx.fillRect(x, GROUND_Y + 12, 6, 1);
   }
 }
 
@@ -840,15 +995,19 @@ function drawPlayer() {
   else if (p.anim === 'jump') frame = Math.min(14, Math.max(5, p.frame));
   else frame = 0;
 
-  drawSheetFrame(
+  const meta = PLAYER_FRAMES[frame] || PLAYER_REF;
+  const feetX = p.x + p.w / 2;
+  const feetY = p.y + p.h; // physics feet (= GROUND_Y when landed)
+  drawSheetAtFeet(
     images.playerSheet,
-    5,
-    3,
+    PLAYER_CELL.cols,
+    PLAYER_CELL.rows,
     frame,
-    p.x - cam,
-    p.y,
-    p.w,
-    p.h,
+    meta,
+    PLAYER_SCALE,
+    feetX,
+    feetY,
+    cam,
     p.facing < 0,
   );
 }
@@ -857,29 +1016,30 @@ function drawEndingChars() {
   const e = state.ending;
   const cam = state.cameraX;
   if (e.hideIndividuals) {
-    const hugW = Math.round(H * 0.42);
-    const hugH = Math.round(H * 0.22);
-    const hx = e.bolX - hugW * 0.45 - cam;
-    const hy = GROUND_Y - hugH;
-    drawSheetFrame(images.hug, 4, 1, e.hugFrame, hx, hy, hugW, hugH);
+    const meta = HUG_FRAMES[e.hugFrame] || HUG_FRAMES[0];
+    drawSheetAtFeet(
+      images.hug,
+      HUG_CELL.cols,
+      HUG_CELL.rows,
+      e.hugFrame,
+      meta,
+      e.hugScale || HUG_SCALE,
+      e.hugAnchorX,
+      e.bolFeetY || GROUND_Y,
+      cam,
+      false,
+    );
     return;
   }
   // Only draw 볼빵이 when near ending zone (always present at end, world-fixed)
   const wedding = state.memories[state.memories.length - 1];
   if (state.cameraX + W < wedding.cx - W * 0.6) return;
 
-  const key =
-    e.phase === 'flower' || e.phase === 'step' || e.phase === 'hug' || e.phase === 'done'
-      ? 'bolFront'
-      : 'bolBehind';
-  const b = BOUNDS[key];
-  const img = images[key];
-  if (!img || !b) return;
-  const h = e.bolH;
-  const w = Math.round((b.ow / b.oh) * h);
-  const sx = e.bolX - w / 2 - cam;
-  const sy = GROUND_Y - h;
-  ctx.drawImage(img, b.ox, b.oy, b.ow, b.oh, Math.round(sx), Math.round(sy), w, h);
+  const useFront =
+    e.phase === 'flower' || e.phase === 'step' || e.phase === 'hug' || e.phase === 'done';
+  const meta = useFront ? BOL.front : BOL.behind;
+  const img = images[meta.key];
+  drawImageAtFeet(img, meta, e.bolScale || BOL_SCALE, e.bolX, e.bolFeetY || GROUND_Y, cam);
 }
 
 function drawMsgs() {
@@ -903,18 +1063,14 @@ function render() {
     ctx.fillRect(0, 0, W, H);
     return;
   }
-  // Layer: season bg (full canvas) → walk ground → memories → player/machines/food → curb → UI(DOM)
+  // Layer: season bg → ground (foot line) → memories → props → characters on top of path
   drawSeasonBackground();
   drawGround();
-  drawMemories(); // world-placed in FRONT of bg
-  drawEndingChars();
+  drawMemories();
   drawFoods();
   drawExercises();
+  drawEndingChars();
   drawPlayer();
-  const si = seasonIndex();
-  ctx.fillStyle =
-    si === 0 ? 'rgba(200,210,225,0.85)' : si === 3 ? 'rgba(90,70,50,0.9)' : 'rgba(110,104,96,0.9)';
-  ctx.fillRect(0, GROUND_Y + 16, W, 12);
   drawMsgs();
 
   if (state.ending.damageLocked && state.ending.phase !== 'done' && state.ending.phase !== 'idle') {
@@ -945,7 +1101,7 @@ function bindInput() {
       e.preventDefault();
     }
     if (e.key === 'r' || e.key === 'R') {
-      startGame('normal');
+      startFromButton('normal');
     }
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key));
@@ -972,12 +1128,52 @@ function bindInput() {
   bindPad('padJump', 'jump');
 }
 
-btnStart.addEventListener('click', () => startGame('normal'));
-btnNearEnding.addEventListener('click', () => startGame('nearEnding'));
-btnRestart.addEventListener('click', () => startGame('normal'));
+btnStart.addEventListener('click', () => startFromButton('normal'));
+btnNearEnding.addEventListener('click', () => startFromButton('nearEnding'));
+btnRestart.addEventListener('click', () => startFromButton('normal'));
+
+function syncAudioUi() {
+  const prefs = getAudioPrefs();
+  const bgmToggle = document.getElementById('bgmToggle');
+  const sfxToggle = document.getElementById('sfxToggle');
+  const bgmVol = document.getElementById('bgmVol');
+  const sfxVol = document.getElementById('sfxVol');
+  const bgmHint = document.getElementById('bgmHint');
+  if (bgmToggle) bgmToggle.checked = prefs.bgmOn;
+  if (sfxToggle) sfxToggle.checked = prefs.sfxOn;
+  if (bgmVol) bgmVol.value = String(Math.round(prefs.bgmVol * 100));
+  if (sfxVol) sfxVol.value = String(Math.round(prefs.sfxVol * 100));
+  if (bgmHint) {
+    bgmHint.textContent = prefs.bgmMissing
+      ? `BGM 대기: ${audioNeededBgmLabel()}`
+      : 'BGM: 어바웃 타임 OST';
+  }
+}
+
+function bindAudioUi() {
+  const bgmToggle = document.getElementById('bgmToggle');
+  const sfxToggle = document.getElementById('sfxToggle');
+  const bgmVol = document.getElementById('bgmVol');
+  const sfxVol = document.getElementById('sfxVol');
+  if (bgmToggle) {
+    bgmToggle.addEventListener('change', () => {
+      setBgmOn(bgmToggle.checked);
+      ensureBgmPlaying();
+    });
+  }
+  if (sfxToggle) {
+    sfxToggle.addEventListener('change', () => setSfxOn(sfxToggle.checked));
+  }
+  if (bgmVol) {
+    bgmVol.addEventListener('input', () => setBgmVolume(Number(bgmVol.value) / 100));
+  }
+  if (sfxVol) {
+    sfxVol.addEventListener('input', () => setSfxVolume(Number(sfxVol.value) / 100));
+  }
+  syncAudioUi();
+}
 
 async function boot() {
-  hideOverlay();
   try {
     await loadAll();
   } catch (err) {
@@ -988,17 +1184,29 @@ async function boot() {
     });
     throw err;
   }
-  // No start popup — normal boot starts immediately at normal start
-  startGame('normal');
-  // Keep a tiny always-available test control via keyboard: press N for near-ending
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'n' || e.key === 'N') startGame('nearEnding');
-  });
   bindInput();
+  bindAudioUi();
+  // Start button unlocks audio (browser policy) and begins the run
+  showOverlay('002couple', '볼떵이가 볼빵이에게 가는 길', {
+    start: true,
+    near: true,
+    restart: false,
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'n' || e.key === 'N') startFromButton('nearEnding');
+  });
   window.__coupleGame = {
-    start: startGame,
+    start: startFromButton,
     getState: () => state,
     missingAssets: MISSING_ASSETS,
+    scales: {
+      characterBodyH: CHARACTER_BODY_H,
+      playerScale: PLAYER_SCALE,
+      bolScale: BOL_SCALE,
+      hugScale: HUG_SCALE,
+      playerH: PLAYER_H,
+      playerW: PLAYER_W,
+    },
     snapshot: () =>
       state
         ? {
@@ -1007,11 +1215,23 @@ async function boot() {
             hearts: state.hearts,
             playerX: state.player.x,
             playerH: state.player.h,
+            playerW: state.player.w,
             groundY: GROUND_Y,
             canvasH: H,
             phase: state.ending.phase,
+            hideIndividuals: state.ending.hideIndividuals,
+            hugFrame: state.ending.hugFrame,
+            hugAnchorX: state.ending.hugAnchorX,
+            bolX: state.ending.bolX,
+            bolFeetY: state.ending.bolFeetY,
             damageLocked: state.ending.damageLocked,
             cameraX: state.cameraX,
+            scales: {
+              characterBodyH: CHARACTER_BODY_H,
+              playerScale: PLAYER_SCALE,
+              bolScale: BOL_SCALE,
+              hugScale: HUG_SCALE,
+            },
             memories: state.memories.map((m) => ({
               id: m.id,
               label: m.label,

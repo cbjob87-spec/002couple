@@ -1,0 +1,8 @@
+BGM (not bundled — provide the licensed file yourself)
+
+Needed track: About Time OST (어바웃 타임 OST)
+Place the audio file at:
+  public/assets/bgm-about-time.mp3
+
+Do not extract from streaming sites. Until this file is present,
+the game runs with jump/heal SFX only; BGM toggle stays ready.
