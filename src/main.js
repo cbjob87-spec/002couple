@@ -18,6 +18,7 @@
 
 import {
   unlockAudio,
+  enableBgmFromGesture,
   ensureBgmPlaying,
   playJump,
   playHeal,
@@ -30,8 +31,8 @@ import {
 } from './audio.js';
 
 /** Live build stamp — must appear on published site after refresh. */
-export const BUILD_VERSION = '20261107-1840-plat3';
-export const BUILD_EDITED_AT = '2026-11-07T18:40+09:00';
+export const BUILD_VERSION = '20261107-1905-fix3';
+export const BUILD_EDITED_AT = '2026-11-07T19:05+09:00';
 
 const W = 960;
 const H = 540;
@@ -64,7 +65,14 @@ const JUMP_HANG_S = (2 * Math.abs(JUMP_V_MAX)) / GRAVITY / 60;
  */
 const CHARACTER_BODY_H = Math.round(H * 0.255);
 
+/** Integer cell size — NEVER use img.width/cols (1619/5=323.8 bleeds next frame). */
 const PLAYER_CELL = { cols: 5, rows: 3, fw: 323, fh: 323 };
+/** Encounter sheets include character+machine; integer cells (1774/4→443.5). */
+const EXERCISE_CELL = { cols: 4, rows: 2, fw: 443, fh: 443 };
+const EXERCISE_META = {
+  treadmillEncounter: { footY: 403, headTop: 39, bodyCx: 230, bodyH: 364 },
+  bikeEncounter: { footY: 413, headTop: 26, bodyCx: 235, bodyH: 387 },
+};
 /** Per-frame foot/body metrics in cell pixels (idle frame 0 is scale reference). */
 const PLAYER_FRAMES = [
   { footY: 303, headTop: 33, bodyH: 271, bodyCx: 179, torsoW: 189, headW: 139 },
@@ -272,12 +280,96 @@ function loadImage(name) {
   });
 }
 
+/**
+ * Remove detached edge-bleed fragments from sheet cells.
+ * Keeps the largest opaque component (body + attached tail) intact.
+ */
+function sanitizeSheetCells(img, cols, rows, fw, fh, maxExtraPx = 500) {
+  const out = document.createElement('canvas');
+  out.width = cols * fw;
+  out.height = rows * fh;
+  const g = out.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, out.width, out.height);
+  g.drawImage(img, 0, 0);
+
+  for (let i = 0; i < cols * rows; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const ox = col * fw;
+    const oy = row * fh;
+    const data = g.getImageData(ox, oy, fw, fh);
+    const a = data.data;
+    const seen = new Uint8Array(fw * fh);
+    const comps = [];
+    for (let y = 0; y < fh; y++) {
+      for (let x = 0; x < fw; x++) {
+        const i0 = y * fw + x;
+        if (seen[i0] || a[i0 * 4 + 3] < 24) continue;
+        const stack = [i0];
+        seen[i0] = 1;
+        const pixels = [i0];
+        let minX = x;
+        let maxX = x;
+        while (stack.length) {
+          const cur = stack.pop();
+          const cx = cur % fw;
+          const cy = (cur / fw) | 0;
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          const tryPush = (nx, ny) => {
+            if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) return;
+            const ni = ny * fw + nx;
+            if (seen[ni] || a[ni * 4 + 3] < 24) return;
+            seen[ni] = 1;
+            stack.push(ni);
+            pixels.push(ni);
+          };
+          tryPush(cx + 1, cy);
+          tryPush(cx - 1, cy);
+          tryPush(cx, cy + 1);
+          tryPush(cx, cy - 1);
+        }
+        comps.push({ n: pixels.length, minX, maxX, pixels });
+      }
+    }
+    if (comps.length < 2) continue;
+    comps.sort((u, v) => v.n - u.n);
+    for (let c = 1; c < comps.length; c++) {
+      const blob = comps[c];
+      const nearEdge =
+        blob.minX <= 2 || blob.maxX >= fw - 3 || blob.maxX <= 14 || blob.minX >= fw - 15;
+      if (blob.n <= maxExtraPx && nearEdge) {
+        for (const pi of blob.pixels) {
+          const o = pi * 4;
+          a[o] = 0;
+          a[o + 1] = 0;
+          a[o + 2] = 0;
+          a[o + 3] = 0;
+        }
+      }
+    }
+    g.putImageData(data, ox, oy);
+  }
+  return out;
+}
+
 async function loadAll() {
   await Promise.all(
     Object.entries(ASSETS).map(async ([key, file]) => {
       images[key] = await loadImage(file);
     }),
   );
+  // Fix adjacent-frame ear/tail slivers on 볼떵이 walk/jump sheet (keep attached tail).
+  if (images.playerSheet) {
+    images.playerSheet = sanitizeSheetCells(
+      images.playerSheet,
+      PLAYER_CELL.cols,
+      PLAYER_CELL.rows,
+      PLAYER_CELL.fw,
+      PLAYER_CELL.fh,
+    );
+  }
 }
 
 function layoutSize(key, hFrac = 0.6) {
@@ -312,10 +404,15 @@ function drawOpaqueAt(key, worldCX, groundY, hFrac, camX) {
   return { w, h, sx, sy };
 }
 
-function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false) {
+function sheetCellSize(img, cols, rows, cellW, cellH) {
+  const fw = cellW || Math.floor(img.width / cols);
+  const fh = cellH || Math.floor(img.height / rows);
+  return { fw, fh };
+}
+
+function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false, cellW = null, cellH = null) {
   if (!img) return;
-  const fw = img.width / cols;
-  const fh = img.height / rows;
+  const { fw, fh } = sheetCellSize(img, cols, rows, cellW, cellH);
   const col = index % cols;
   const row = Math.floor(index / cols);
   const scale = Math.min(dw / fw, dh / fh);
@@ -337,11 +434,24 @@ function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false) {
 /**
  * Draw a sheet frame with fixed world scale + foot anchor.
  * feetWorldX/Y = where the source footY pixel should land in world space.
+ * Pass integer cellW/cellH to avoid fractional bleed into the next frame.
  */
-function drawSheetAtFeet(img, cols, rows, index, meta, scale, feetWorldX, feetWorldY, camX, flip = false) {
+function drawSheetAtFeet(
+  img,
+  cols,
+  rows,
+  index,
+  meta,
+  scale,
+  feetWorldX,
+  feetWorldY,
+  camX,
+  flip = false,
+  cellW = null,
+  cellH = null,
+) {
   if (!img || !meta) return null;
-  const fw = img.width / cols;
-  const fh = img.height / rows;
+  const { fw, fh } = sheetCellSize(img, cols, rows, cellW, cellH);
   const col = index % cols;
   const row = Math.floor(index / cols);
   const w = fw * scale;
@@ -590,6 +700,7 @@ function createState(mode = 'normal') {
       jumpBuffer: 0,
       jumping: false,
       onPlatform: null,
+      hidden: false,
     },
     foods,
     exercises,
@@ -771,13 +882,14 @@ function respawnAtCheckpoint() {
     }
   }
   state._exerciseLock = false;
+  p.hidden = false;
   hideOverlay();
   updateHud();
   pushMsg(`${cp.label} 체크포인트!`, p.x, p.y - 30);
 }
 
 function beginExercise(ex) {
-  if (ex.playing || ex.contactLock) return;
+  if (ex.playing || ex.contactLock || state._exerciseLock) return;
   ex.playing = true;
   ex.contactLock = true;
   ex.frame = 0;
@@ -785,15 +897,26 @@ function beginExercise(ex) {
   ex.dir = 0; // pause patrol during interaction
   state._exerciseLock = true;
   const p = state.player;
+  p.hidden = true; // exclusive with encounter sheet (character+machine)
+  // Pin player hitbox to this machine's world position so camera stays glued.
+  p.x = ex.x + (ex.w - p.w) / 2;
+  p.y = GROUND_Y - p.h;
   p.vx = 0;
   p.vy = 0;
+  p.onGround = true;
+  p.onPlatform = null;
+  p.anim = 'idle';
+  p.frame = 0;
 }
 
 function finishExercise(ex) {
   ex.playing = false;
+  ex.frame = 0;
+  ex.frameT = 0;
   state._exerciseLock = false;
-  // Eject player to a safe side (behind the villain relative to facing)
+  // Eject player to a safe ground position (never leave mid-air ghost)
   const p = state.player;
+  p.hidden = false;
   const ejectLeft = p.x + p.w / 2 < ex.x + ex.w / 2;
   p.x = ejectLeft ? ex.patrolMin - p.w - 24 : ex.patrolMax + 24;
   p.y = GROUND_Y - p.h;
@@ -801,10 +924,15 @@ function finishExercise(ex) {
   p.vy = 0;
   p.onGround = true;
   p.onPlatform = null;
-  // Resume patrol
+  p.anim = 'idle';
+  p.frame = 0;
+  p.h = PLAYER_H;
+  p.w = PLAYER_W;
+  // Resume patrol at current machine world x
   ex.dir = ejectLeft ? 1 : -1;
   ex.x = Math.max(ex.patrolMin, Math.min(ex.patrolMax, ex.x));
-  // One-contact damage; keep contactLock until player separates
+  ex.y = GROUND_Y - ex.h;
+  // One-contact damage only; 2s i-frames; contactLock until separate
   if (!state.ending.damageLocked) {
     state.hearts = Math.max(0, state.hearts - 1);
     state.invUntil = state.now + INVINCIBLE_MS;
@@ -996,6 +1124,12 @@ function update(dt) {
 
   for (const ex of state.exercises) {
     if (!ex.playing) continue;
+    // Keep player + encounter on the same world machine x while animating
+    p.x = ex.x + (ex.w - p.w) / 2;
+    p.y = GROUND_Y - p.h;
+    p.vx = 0;
+    p.vy = 0;
+    p.onGround = true;
     ex.frameT += dt;
     if (ex.frameT >= 140) {
       ex.frameT = 0;
@@ -1297,21 +1431,36 @@ function drawFoods() {
   }
 }
 
+function activeExercise() {
+  if (!state) return null;
+  return state.exercises.find((ex) => ex.playing) || null;
+}
+
 function drawExercises() {
   const cam = state.cameraX;
   for (const ex of state.exercises) {
     const sx = ex.x - cam;
     if (sx + ex.w < -40 || sx > W + 40) continue;
     if (ex.playing) {
-      drawSheetFrame(
-        images[ex.sheet],
-        ex.cols,
-        ex.rows,
+      // Encounter PNG already includes 볼떵이 + machine — draw only that, hide idle machine.
+      const meta = EXERCISE_META[ex.sheet];
+      const img = images[ex.sheet];
+      if (!img || !meta) continue;
+      const scale = ex.h / meta.bodyH;
+      const feetX = ex.x + ex.w / 2;
+      drawSheetAtFeet(
+        img,
+        EXERCISE_CELL.cols,
+        EXERCISE_CELL.rows,
         Math.min(ex.frame, ex.frames - 1),
-        sx - 10,
-        ex.y - 10,
-        ex.w + 20,
-        ex.h + 10,
+        meta,
+        scale,
+        feetX,
+        GROUND_Y,
+        cam,
+        false,
+        EXERCISE_CELL.fw,
+        EXERCISE_CELL.fh,
       );
     } else {
       const key = ex.idle;
@@ -1333,6 +1482,8 @@ function drawExercises() {
 function drawPlayer() {
   if (state.ending.hideIndividuals) return;
   const p = state.player;
+  // Exclusive with exercise encounter art (which already contains 볼떵이 + machine).
+  if (p.hidden || state._exerciseLock || activeExercise()) return;
   const cam = state.cameraX;
   const inv = state.now < state.invUntil && !state.ending.damageLocked;
   if (inv && Math.floor(state.now / 80) % 2 === 0) return;
@@ -1357,6 +1508,8 @@ function drawPlayer() {
     feetY,
     cam,
     p.facing < 0,
+    PLAYER_CELL.fw,
+    PLAYER_CELL.fh,
   );
 }
 
@@ -1381,6 +1534,8 @@ function drawEndingChars() {
       e.bolFeetY || GROUND_Y,
       cam,
       false,
+      HUG_CELL.fw,
+      HUG_CELL.fh,
     );
     return;
   }
@@ -1507,14 +1662,25 @@ function syncAudioUi() {
   const bgmVol = document.getElementById('bgmVol');
   const sfxVol = document.getElementById('sfxVol');
   const bgmHint = document.getElementById('bgmHint');
+  const btnEnable = document.getElementById('btnEnableBgm');
   if (bgmToggle) bgmToggle.checked = prefs.bgmOn;
   if (sfxToggle) sfxToggle.checked = prefs.sfxOn;
   if (bgmVol) bgmVol.value = String(Math.round(prefs.bgmVol * 100));
   if (sfxVol) sfxVol.value = String(Math.round(prefs.sfxVol * 100));
   if (bgmHint) {
-    bgmHint.textContent = prefs.bgmMissing
-      ? `BGM 대기: ${audioNeededBgmLabel()}`
-      : 'BGM: 어바웃 타임 OST';
+    if (prefs.bgmStatus === 'ok' && !prefs.bgmMissing) {
+      bgmHint.textContent = prefs.bgmOn ? `BGM 재생 중 · ${audioNeededBgmLabel()}` : `BGM 음소거 · ${audioNeededBgmLabel()}`;
+    } else if (prefs.bgmStatus === 'play-blocked') {
+      bgmHint.textContent = 'BGM: 재생이 차단됨 — 「음악 켜기」를 누르세요';
+    } else if (prefs.bgmStatus === 'missing' || prefs.bgmStatus === 'not-audio' || prefs.bgmStatus === 'load-error') {
+      bgmHint.textContent = 'BGM: 파일을 불러오지 못했습니다';
+    } else {
+      bgmHint.textContent = `BGM · ${audioNeededBgmLabel()}`;
+    }
+  }
+  if (btnEnable) {
+    // Keep mid-run so a blocked autoplay can still be unlocked by gesture
+    btnEnable.classList.toggle('hidden', false);
   }
 }
 
@@ -1523,10 +1689,13 @@ function bindAudioUi() {
   const sfxToggle = document.getElementById('sfxToggle');
   const bgmVol = document.getElementById('bgmVol');
   const sfxVol = document.getElementById('sfxVol');
+  const btnEnable = document.getElementById('btnEnableBgm');
   if (bgmToggle) {
-    bgmToggle.addEventListener('change', () => {
+    bgmToggle.addEventListener('change', async () => {
       setBgmOn(bgmToggle.checked);
-      ensureBgmPlaying();
+      if (bgmToggle.checked) await unlockAudio();
+      else ensureBgmPlaying();
+      syncAudioUi();
     });
   }
   if (sfxToggle) {
@@ -1537,6 +1706,12 @@ function bindAudioUi() {
   }
   if (sfxVol) {
     sfxVol.addEventListener('input', () => setSfxVolume(Number(sfxVol.value) / 100));
+  }
+  if (btnEnable) {
+    btnEnable.addEventListener('click', async () => {
+      await enableBgmFromGesture();
+      syncAudioUi();
+    });
   }
   syncAudioUi();
 }
@@ -1576,6 +1751,12 @@ async function boot() {
     getState: () => state,
     missingAssets: MISSING_ASSETS,
     build: { version: BUILD_VERSION, editedAt: BUILD_EDITED_AT },
+    audio: () => getAudioPrefs(),
+    forceExercise: (id) => {
+      const ex = state?.exercises?.find((e) => e.id === id) || state?.exercises?.[0];
+      if (ex) beginExercise(ex);
+      return !!ex;
+    },
     scales: {
       characterBodyH: CHARACTER_BODY_H,
       playerScale: PLAYER_SCALE,

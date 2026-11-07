@@ -1,15 +1,7 @@
 BGM — How Long Will I Love You (어바웃 타임 OST)
-Reference version (for identification only): https://youtu.be/tFFic1iYM-c
 
-Do NOT rip/extract from YouTube or other streams.
-Provide a file you own / are licensed to use.
+Bundled file (shipped with the game):
+  public/assets/bgm-how-long-will-i-love-you.mp3
 
-Place the file here (first match wins):
-  public/assets/bgm-how-long-will-i-love-you.mp3   ← preferred
-  public/assets/bgm-how-long-will-i-love-you.ogg
-  public/assets/bgm-about-time.mp3                 ← alias
-
-Formats: MP3 (recommended), or OGG.
-After adding the file: commit/push (or tell the agent) and republish.
-
-Until the file is present, jump/heal SFX still work; BGM stays ready.
+Served at: /assets/bgm-how-long-will-i-love-you.mp3
+Playback starts on 「시작하기」 or 「음악 켜기」 (user gesture).
