@@ -31,8 +31,8 @@ import {
 } from './audio.js';
 
 /** Live build stamp — must appear on published site after refresh. */
-export const BUILD_VERSION = '20261107-2105-boards';
-export const BUILD_EDITED_AT = '2026-11-07T21:05+09:00';
+export const BUILD_VERSION = '20261107-2118-letter';
+export const BUILD_EDITED_AT = '2026-11-07T21:18+09:00';
 
 const W = 960;
 const H = 540;
@@ -52,6 +52,9 @@ const INVINCIBLE_MS = 2000; // after exercise eject
 const MAX_HEARTS = 3;
 const FLOWER_HOLD_MS = 900;
 const HUG_FRAME_MS = 700;
+/** After final hug pose lands, wait then reveal letter. */
+const LETTER_DELAY_MS = 600;
+const LETTER_FADE_MS = 800;
 const ENDING_TRIGGER_DIST = 160;
 const CLOSE_STEP = 40;
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
@@ -216,6 +219,7 @@ const ASSETS = {
   bolBehind: 'bolppangi-flowers-behind.png',
   bolFront: 'bolppangi-flowers-front.png',
   hug: 'hug-4cut.png',
+  endingLetter: 'ending-letter.png',
   bgWinter: 'bg-winter.png',
   bgSpring: 'bg-spring.png',
   bgSummer: 'bg-summer.png',
@@ -256,6 +260,7 @@ const BOUNDS = {
   coupleBoard08: { ox: 0, oy: 0, ow: 582, oh: 631 },
   coupleBoard09: { ox: 0, oy: 0, ow: 450, oh: 624 },
   coupleBoard10: { ox: 0, oy: 0, ow: 540, oh: 628 },
+  endingLetter: { ox: 0, oy: 0, ow: 602, oh: 900 },
   bolBehind: { ox: 165, oy: 129, ow: 928, oh: 1004 },
   bolFront: { ox: 46, oy: 59, ow: 1187, oh: 1095 },
   chicken: { ox: 298, oy: 131, ow: 852, oh: 782 },
@@ -326,6 +331,8 @@ const overlayBody = document.getElementById('overlayBody');
 const btnStart = document.getElementById('btnStart');
 const btnNearEnding = document.getElementById('btnNearEnding');
 const btnRestart = document.getElementById('btnRestart');
+const stageWrap = document.getElementById('stageWrap');
+const endingLetterEl = document.getElementById('endingLetter');
 
 const keys = new Set();
 const touch = { left: false, right: false, jump: false };
@@ -862,6 +869,12 @@ function createState(mode = 'normal') {
       damageLocked: false,
       hideIndividuals: false,
       hugAnchorX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.35),
+      /** Letter reveal: delay after final hug pose, then 0.8s slide-in. */
+      letterReady: false,
+      letterT: 0,
+      letterShown: false,
+      letterLayout: 'side', // 'side' | 'below'
+      letterPrompted: false,
     },
     now: performance.now(),
     floatMsgs: [],
@@ -869,22 +882,70 @@ function createState(mode = 'normal') {
   };
 }
 
-function showOverlay(title, body, { start = false, near = false, restart = false } = {}) {
+function showOverlay(title, body, { start = false, near = false, restart = false, ending = false } = {}) {
   overlayTitle.textContent = title;
   overlayBody.textContent = body;
   btnStart.classList.toggle('hidden', !start);
   btnNearEnding.classList.toggle('hidden', !near);
   btnRestart.classList.toggle('hidden', !restart);
+  overlay.classList.toggle('overlay--ending', !!ending);
   overlay.classList.remove('hidden');
 }
 
 function hideOverlay() {
   overlay.classList.add('hidden');
+  overlay.classList.remove('overlay--ending');
+}
+
+function easeOutCubic(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return 1 - (1 - x) ** 3;
+}
+
+/** Prefer side letter when stage is wide enough for readable text; else below canvas. */
+function pickLetterLayout() {
+  const stageW = stageWrap?.clientWidth || window.innerWidth || W;
+  // Side column ~38% must stay ≥ ~200css px for Korean body text
+  if (stageW >= 560 && stageW * 0.38 >= 200) return 'side';
+  return 'below';
+}
+
+function resetEndingLetterDom() {
+  if (!endingLetterEl) return;
+  endingLetterEl.classList.remove('is-visible', 'is-side', 'is-below');
+  endingLetterEl.style.opacity = '0';
+  endingLetterEl.style.transform = 'translateX(36px)';
+  endingLetterEl.setAttribute('aria-hidden', 'true');
+}
+
+function syncEndingLetterDom() {
+  if (!endingLetterEl || !state) return;
+  const e = state.ending;
+  if (!e.letterShown && e.letterT <= 0) {
+    resetEndingLetterDom();
+    return;
+  }
+  const layout = e.letterLayout || pickLetterLayout();
+  e.letterLayout = layout;
+  endingLetterEl.classList.add('is-visible');
+  endingLetterEl.classList.toggle('is-side', layout === 'side');
+  endingLetterEl.classList.toggle('is-below', layout === 'below');
+  endingLetterEl.setAttribute('aria-hidden', 'false');
+  if (layout === 'side' && stageWrap) {
+    endingLetterEl.style.setProperty('--letter-stage-h', `${stageWrap.clientHeight}px`);
+  } else {
+    endingLetterEl.style.removeProperty('--letter-stage-h');
+  }
+  const t = easeOutCubic(e.letterT);
+  const slide = layout === 'below' ? 28 : 36;
+  endingLetterEl.style.opacity = String(t);
+  endingLetterEl.style.transform = `translateX(${(1 - t) * slide}px)`;
 }
 
 function startGame(mode = 'normal') {
   state = createState(mode);
   hideOverlay();
+  resetEndingLetterDom();
   updateHud();
   // Resume same BGM instance — do not rewind on restart or ending return
   ensureBgmPlaying();
@@ -1399,15 +1460,47 @@ function updateEnding(dt) {
     if (e.hugFrame < 3 && e.hugTimer >= HUG_FRAME_MS) {
       e.hugTimer = 0;
       e.hugFrame += 1;
-    } else if (e.hugFrame >= 3 && e.hugTimer >= HUG_FRAME_MS + 400) {
-      e.phase = 'done';
-      state.won = true;
-      state.running = false;
-      showOverlay('볼떵이 ♥ 볼빵이', '만났어요! 꽃다발과 포옹의 엔딩입니다.', {
-        start: false,
-        near: true,
-        restart: true,
-      });
+      if (e.hugFrame >= 3) {
+        // Final pose just landed — start letter delay clock
+        e.hugTimer = 0;
+        e.letterReady = false;
+        e.letterT = 0;
+        e.letterShown = false;
+      }
+    } else if (e.hugFrame >= 3) {
+      // Hold final hug forever; after delay, slide letter in
+      if (!e.letterShown && e.hugTimer >= LETTER_DELAY_MS) {
+        e.letterShown = true;
+        e.letterT = 0;
+        e.letterLayout = pickLetterLayout();
+      }
+      if (e.letterShown && e.letterT < 1) {
+        e.letterT = Math.min(1, e.letterT + dt / LETTER_FADE_MS);
+      }
+      if (e.letterShown && e.letterT >= 1 && !e.letterPrompted) {
+        e.letterPrompted = true;
+        e.phase = 'done';
+        state.won = true;
+        state.running = false;
+        showOverlay('볼떵이 ♥ 볼빵이', '편지도 전했어요. 처음부터 다시 볼 수 있어요.', {
+          start: false,
+          near: true,
+          restart: true,
+          ending: true,
+        });
+      }
+      syncEndingLetterDom();
+    }
+    return;
+  }
+
+  if (e.phase === 'done') {
+    // Keep hug frame 3 + letter until restart
+    e.hugFrame = 3;
+    e.hideIndividuals = true;
+    if (e.letterShown) {
+      e.letterT = 1;
+      syncEndingLetterDom();
     }
   }
 }
@@ -1614,7 +1707,10 @@ function update(dt) {
 
   if (state.cameraLock || endingActive) {
     const e = state.ending;
-    const target = Math.max(0, Math.min(state.worldEnd - W, e.weddingCx - W * 0.42));
+    // With side letter, park hug pair in left~center so they don't sit under the note
+    const frac = e.letterShown && e.letterLayout === 'side' ? 0.3 : 0.42;
+    const focusX = e.hideIndividuals ? e.hugAnchorX : e.weddingCx;
+    const target = Math.max(0, Math.min(state.worldEnd - W, focusX - W * frac));
     state.cameraX += (target - state.cameraX) * 0.1;
   } else {
     const targetCam = Math.max(0, Math.min(state.worldEnd - W, p.x - W * 0.32));
@@ -2031,7 +2127,12 @@ function render() {
   drawPlayer();
   drawMsgs();
 
-  if (state.ending.damageLocked && state.ending.phase !== 'done' && state.ending.phase !== 'idle') {
+  if (
+    state.ending.damageLocked &&
+    state.ending.phase !== 'done' &&
+    state.ending.phase !== 'idle' &&
+    !state.ending.letterShown
+  ) {
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(W / 2 - 120, 48, 240, 32);
     ctx.fillStyle = '#fff';
@@ -2047,9 +2148,20 @@ function loop(now) {
   const dt = Math.min(40, now - last);
   last = now;
   update(dt);
+  // Keep letter DOM alive after running freezes on the final pose
+  if (state?.ending?.letterShown && (!state.running || state.ending.phase === 'done')) {
+    state.ending.letterT = 1;
+    syncEndingLetterDom();
+  }
   render();
   requestAnimationFrame(loop);
 }
+
+window.addEventListener('resize', () => {
+  if (!state?.ending?.letterShown) return;
+  state.ending.letterLayout = pickLetterLayout();
+  syncEndingLetterDom();
+});
 
 function bindInput() {
   window.addEventListener('keydown', (e) => {
@@ -2215,6 +2327,34 @@ async function boot() {
       b.timer = 0;
       b.frame = 3;
       state.cameraX = Math.max(0, b.x - 400);
+      return true;
+    },
+    /** Jump to final hug pose and arm letter delay (playtest). */
+    forceEndingLetter: () => {
+      if (!state) return false;
+      const e = state.ending;
+      const p = state.player;
+      e.phase = 'hug';
+      e.inputLocked = true;
+      e.damageLocked = true;
+      e.hideIndividuals = true;
+      e.hugFrame = 3;
+      e.hugTimer = 0;
+      e.letterReady = false;
+      e.letterShown = false;
+      e.letterT = 0;
+      e.letterPrompted = false;
+      state.cameraLock = true;
+      state.running = true;
+      state.won = false;
+      hideOverlay();
+      p.x = e.bolX - Math.round(CHARACTER_BODY_H * 0.95) + CLOSE_STEP;
+      p.y = GROUND_Y - p.h;
+      p.onGround = true;
+      e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
+      e.bolFeetY = GROUND_Y;
+      state.cameraX = Math.max(0, e.hugAnchorX - W * 0.42);
+      resetEndingLetterDom();
       return true;
     },
     scales: {
