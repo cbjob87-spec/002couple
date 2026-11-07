@@ -98,8 +98,12 @@ const BOLPPANGI = {
   },
 };
 const BOLPPANGI_SCALE = CHARACTER_BODY_H / BOLPPANGI.behind.bodyH;
-/** Same scale for every 볼떵이 draw (idle/walk/jump/exercise/ending approach). */
-const PLAYER_SCALE = CHARACTER_BODY_H / PLAYER_REF.bodyH;
+/**
+ * Same scale for every 볼떵이 draw (idle/walk/jump/exercise/ending approach).
+ * +20% vs raw body match so head/torso read equal next to 볼빵이 dress mass
+ * (still one scale — not an ending-only oversized double).
+ */
+const PLAYER_SCALE = (CHARACTER_BODY_H / PLAYER_REF.bodyH) * 1.2;
 const PLAYER_H = Math.round(PLAYER_REF.bodyH * PLAYER_SCALE);
 const PLAYER_W = Math.round(PLAYER_REF.torsoW * PLAYER_SCALE * 0.82);
 
@@ -1010,7 +1014,8 @@ function drawPlayer() {
 
   const meta = PLAYER_FRAMES[frame] || PLAYER_REF;
   const feetX = p.x + p.w / 2;
-  const feetY = p.y + p.h; // physics feet (= GROUND_Y when landed)
+  // Plant sole on ground; footY already marks solid shoe (not pad)
+  const feetY = p.y + p.h;
   drawSheetAtFeet(
     images.playerSheet,
     PLAYER_CELL.cols,
