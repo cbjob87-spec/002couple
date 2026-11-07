@@ -500,6 +500,7 @@ function startGame(mode = 'normal') {
   state = createState(mode);
   hideOverlay();
   updateHud();
+  // Resume same BGM instance — do not rewind on restart or ending return
   ensureBgmPlaying();
 }
 
@@ -877,47 +878,46 @@ function seasonIndex() {
 }
 
 function drawGround() {
-  // Walk surface top edge = GROUND_Y (feet land here). Collision Y constant across seasons.
+  // Opaque road from GROUND_Y down — covers season-BG painted street so feet don't look mid-air.
+  // Foot line = top edge of this road (collision Y constant across seasons).
   const si = seasonIndex();
-  let lip;
   let path;
   let deep;
+  let dash;
   let accent = null;
   if (si === 0) {
-    lip = '#d0dae8';
-    path = '#e8eef5';
-    deep = '#b8c4d4';
+    path = '#d8e0ea';
+    deep = '#a8b4c4';
+    dash = '#c0cad8';
     accent = '#ffffff';
   } else if (si === 1 || si === 2) {
-    lip = '#6e6860';
-    path = '#9a948c';
+    path = '#8a847c';
     deep = '#5a544c';
+    dash = '#b0aaa0';
     accent = '#aea79e';
   } else {
-    lip = '#5a4a3a';
-    path = '#7a6a58';
-    deep = '#4a3e32';
+    path = '#6a5a48';
+    deep = '#3e3228';
+    dash = '#c4b49a';
     accent = '#a07040';
   }
-  // Dark lip at exact foot line so characters don't look floated above a lower band
-  ctx.fillStyle = lip;
-  ctx.fillRect(0, GROUND_Y, W, 4);
   ctx.fillStyle = path;
-  ctx.fillRect(0, GROUND_Y + 4, W, 24);
-  for (let x = 0; x < W; x += 18) {
-    ctx.fillStyle = deep;
-    ctx.fillRect(x, GROUND_Y + 14, 9, 2);
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  // Center dashes sit ON the road surface just under the feet (not a lower "true ground")
+  ctx.fillStyle = dash;
+  for (let x = 10; x < W; x += 28) {
+    ctx.fillRect(x, GROUND_Y + 5, 14, 2);
   }
   ctx.fillStyle = deep;
-  ctx.fillRect(0, GROUND_Y + 28, W, H - GROUND_Y - 28);
+  ctx.fillRect(0, GROUND_Y + 22, W, H - GROUND_Y - 22);
   if (si === 0) {
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    for (let x = 8; x < W; x += 22) ctx.fillRect(x, GROUND_Y + 8, 3, 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    for (let x = 8; x < W; x += 22) ctx.fillRect(x, GROUND_Y + 10, 3, 2);
   } else if (si === 3 && accent) {
     ctx.fillStyle = accent;
     for (let x = 12; x < W; x += 28) {
-      ctx.fillRect(x, GROUND_Y + 10, 4, 2);
-      ctx.fillRect(x + 10, GROUND_Y + 20, 3, 2);
+      ctx.fillRect(x, GROUND_Y + 12, 4, 2);
+      ctx.fillRect(x + 10, GROUND_Y + 18, 3, 2);
     }
   } else if (accent) {
     ctx.fillStyle = accent;
