@@ -1,23 +1,10 @@
 /**
- * Audio: WebAudio SFX (separate graph) + user-provided BGM file.
- *
- * Track: How Long Will I Love You (About Time / 어바웃 타임 OST)
- * Reference only (do not rip): https://youtu.be/tFFic1iYM-c
- *
- * Drop a licensed file at one of:
- *   public/assets/bgm-how-long-will-i-love-you.mp3  (preferred)
- *   public/assets/bgm-how-long-will-i-love-you.ogg
- *   public/assets/bgm-about-time.mp3                 (alias)
+ * Audio: WebAudio SFX + looping BGM from bundled MP3.
+ * File: public/assets/bgm-how-long-will-i-love-you.mp3
  */
 
-const BGM_CANDIDATES = [
-  '/assets/bgm-how-long-will-i-love-you.mp3',
-  '/assets/bgm-how-long-will-i-love-you.ogg',
-  '/assets/bgm-about-time.mp3',
-];
-
-const BGM_NEEDED =
-  'How Long Will I Love You (어바웃 타임 OST) — public/assets/bgm-how-long-will-i-love-you.mp3';
+const BGM_URL = '/assets/bgm-how-long-will-i-love-you.mp3';
+const BGM_TITLE = 'How Long Will I Love You';
 
 const prefs = {
   bgmOn: true,
@@ -33,6 +20,9 @@ let bgmReady = false;
 let bgmMissing = true;
 let bgmSrc = null;
 let unlocked = false;
+/** 'ok' | 'missing' | 'not-audio' | 'load-error' | 'play-blocked' | 'idle' */
+let bgmStatus = 'idle';
+let bgmErrorDetail = '';
 
 function ensureCtx() {
   if (!ctx) {
@@ -47,7 +37,7 @@ function ensureCtx() {
 }
 
 export function audioNeededBgmLabel() {
-  return BGM_NEEDED;
+  return BGM_TITLE;
 }
 
 export function getAudioPrefs() {
@@ -57,13 +47,15 @@ export function getAudioPrefs() {
     bgmMissing,
     bgmSrc,
     unlocked,
-    track: 'How Long Will I Love You',
+    bgmStatus,
+    bgmErrorDetail,
+    track: BGM_TITLE,
   };
 }
 
 export function setBgmOn(on) {
   prefs.bgmOn = !!on;
-  applyBgmState({ resumeOnly: true });
+  applyBgmState();
 }
 
 export function setSfxOn(on) {
@@ -80,22 +72,21 @@ export function setSfxVolume(v) {
   if (sfxGain) sfxGain.gain.value = prefs.sfxVol;
 }
 
-/**
- * Keep a single looping BGM element.
- * Never resets currentTime on resume — ending / restart must not rewind.
- */
-function applyBgmState({ resumeOnly = true } = {}) {
+function applyBgmState() {
   if (!bgmEl) return;
   bgmEl.volume = prefs.bgmVol;
   if (prefs.bgmOn && unlocked && bgmReady && !bgmMissing) {
     if (bgmEl.paused) {
       const p = bgmEl.play();
-      if (p && typeof p.catch === 'function') p.catch(() => {});
+      if (p && typeof p.catch === 'function') {
+        p.catch((err) => {
+          bgmStatus = 'play-blocked';
+          bgmErrorDetail = String(err && err.message ? err.message : err);
+        });
+      }
     }
-  } else if (!prefs.bgmOn) {
+  } else if (!prefs.bgmOn && bgmEl && !bgmEl.paused) {
     bgmEl.pause();
-    // do not rewind — turning BGM back on continues where it left off
-    if (!resumeOnly) bgmEl.currentTime = 0;
   }
 }
 
@@ -118,50 +109,113 @@ function tone(freq, dur, type = 'square', gain = 0.2, slideTo = null) {
   osc.stop(t0 + dur + 0.02);
 }
 
-/** Short cute pixel jump blip — only when a ground jump actually starts. */
 export function playJump() {
   tone(520, 0.07, 'square', 0.18, 780);
   tone(780, 0.05, 'square', 0.08, 420);
 }
 
-/** Bright heal chime — once per food pickup. */
 export function playHeal() {
   tone(523.25, 0.08, 'triangle', 0.16);
   setTimeout(() => tone(659.25, 0.09, 'triangle', 0.14), 55);
   setTimeout(() => tone(783.99, 0.12, 'triangle', 0.12), 110);
 }
 
-function tryAttachBgm(src) {
-  return new Promise((resolve) => {
-    const el = new Audio();
-    el.preload = 'auto';
-    el.loop = true;
-    el.volume = prefs.bgmVol;
+/**
+ * Fetch BGM and verify it is real audio (not an HTML SPA fallback page).
+ */
+async function loadBgmElement() {
+  bgmStatus = 'idle';
+  bgmErrorDetail = '';
+  bgmMissing = true;
+  bgmReady = false;
+  bgmSrc = null;
+
+  let res;
+  try {
+    res = await fetch(BGM_URL, { method: 'GET', cache: 'force-cache' });
+  } catch (err) {
+    bgmStatus = 'load-error';
+    bgmErrorDetail = String(err && err.message ? err.message : err);
+    return null;
+  }
+  if (!res.ok) {
+    bgmStatus = 'missing';
+    bgmErrorDetail = `HTTP ${res.status}`;
+    return null;
+  }
+  const ctype = (res.headers.get('content-type') || '').toLowerCase();
+  if (ctype.includes('text/html') || ctype.includes('application/json')) {
+    bgmStatus = 'not-audio';
+    bgmErrorDetail = ctype || 'html-fallback';
+    return null;
+  }
+  const buf = await res.arrayBuffer();
+  if (!buf || buf.byteLength < 1000) {
+    bgmStatus = 'missing';
+    bgmErrorDetail = 'empty-body';
+    return null;
+  }
+  // MP3 frames often start after ID3; reject obvious HTML
+  const head = new Uint8Array(buf.slice(0, 16));
+  const asText = String.fromCharCode(...head);
+  if (asText.startsWith('<!') || asText.startsWith('<html')) {
+    bgmStatus = 'not-audio';
+    bgmErrorDetail = 'html-body';
+    return null;
+  }
+
+  const blob = new Blob([buf], { type: ctype.includes('audio') ? ctype : 'audio/mpeg' });
+  const objectUrl = URL.createObjectURL(blob);
+  const el = new Audio();
+  el.preload = 'auto';
+  el.loop = true;
+  el.volume = prefs.bgmVol;
+  await new Promise((resolve, reject) => {
     let settled = false;
     const ok = () => {
       if (settled) return;
       settled = true;
-      resolve({ el, src, ok: true });
+      resolve();
     };
     const bad = () => {
       if (settled) return;
       settled = true;
-      resolve({ el: null, src, ok: false });
+      reject(new Error('audio-element-error'));
     };
     el.addEventListener('canplaythrough', ok, { once: true });
     el.addEventListener('error', bad, { once: true });
-    el.src = src;
+    el.src = objectUrl;
     el.load();
-    // Timeout fallback
     setTimeout(() => {
       if (!settled) {
         if (el.readyState >= 2) ok();
         else bad();
       }
-    }, 2500);
+    }, 4000);
+  }).catch((err) => {
+    bgmStatus = 'load-error';
+    bgmErrorDetail = String(err && err.message ? err.message : err);
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch (_) {
+      /* ignore */
+    }
+    throw err;
   });
+
+  bgmEl = el;
+  bgmSrc = BGM_URL;
+  bgmReady = true;
+  bgmMissing = false;
+  bgmStatus = 'ok';
+  bgmErrorDetail = '';
+  return el;
 }
 
+/**
+ * Must be called from a user gesture (Start / 음악 켜기).
+ * Reuses the same Audio element so restart/ending never double-play.
+ */
 export async function unlockAudio() {
   const ac = ensureCtx();
   if (ac && ac.state === 'suspended') {
@@ -174,31 +228,38 @@ export async function unlockAudio() {
   unlocked = true;
 
   if (!bgmEl) {
-    bgmMissing = true;
-    bgmReady = false;
-    for (const src of BGM_CANDIDATES) {
-      const result = await tryAttachBgm(src);
-      if (result.ok && result.el) {
-        bgmEl = result.el;
-        bgmSrc = result.src;
-        bgmReady = true;
-        bgmMissing = false;
-        break;
-      }
+    try {
+      await loadBgmElement();
+    } catch (_) {
+      /* status already set */
     }
   }
 
-  applyBgmState({ resumeOnly: true });
+  if (bgmEl && prefs.bgmOn) {
+    try {
+      await bgmEl.play();
+      bgmStatus = 'ok';
+      bgmErrorDetail = '';
+    } catch (err) {
+      bgmStatus = 'play-blocked';
+      bgmErrorDetail = String(err && err.message ? err.message : err);
+    }
+  }
   return getAudioPrefs();
 }
 
-/** Continue the same BGM instance — never rewinds (ending / restart safe). */
-export function ensureBgmPlaying() {
-  if (!unlocked) return;
-  applyBgmState({ resumeOnly: true });
+/** Explicit user action while a run is already going. */
+export async function enableBgmFromGesture() {
+  prefs.bgmOn = true;
+  return unlockAudio();
 }
 
-/** Explicit stop + rewind (not used by ending / restart). */
+/** Continue same instance — never rewinds, never creates a second player. */
+export function ensureBgmPlaying() {
+  if (!unlocked) return;
+  applyBgmState();
+}
+
 export function stopBgm() {
   if (bgmEl) {
     bgmEl.pause();

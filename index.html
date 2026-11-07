@@ -22,44 +22,57 @@
         <p class="tagline">볼떵이가 볼빵이에게 가는 길</p>
       </header>
 
-      <div class="stage-wrap">
-        <canvas id="game" width="960" height="540" aria-label="002couple game canvas"></canvas>
-        <div id="hud" class="hud">
-          <div class="hud-row">
-            <span id="hpLabel">하트 ♥♥♥</span>
-            <span id="zoneLabel">고속터미널</span>
+      <div class="play-column">
+        <div class="stage-wrap" id="stageWrap">
+          <canvas id="game" width="960" height="540" aria-label="002couple game canvas"></canvas>
+          <div id="buildStamp" class="build-stamp" aria-hidden="true">build …</div>
+          <div id="hud" class="hud">
+            <div class="hud-row">
+              <span id="hpLabel">하트 ♥♥♥</span>
+            </div>
+            <div class="hint">← → 이동 · Z/스페이스 점프 · R 재시작</div>
+            <div id="audioPanel" class="audio-panel" aria-label="오디오 설정">
+              <label class="audio-item"><input type="checkbox" id="bgmToggle" checked /> BGM</label>
+              <label class="audio-item"><input type="range" id="bgmVol" min="0" max="100" value="18" /> </label>
+              <label class="audio-item"><input type="checkbox" id="sfxToggle" checked /> 효과음</label>
+              <label class="audio-item"><input type="range" id="sfxVol" min="0" max="100" value="55" /> </label>
+              <button type="button" id="btnEnableBgm" class="bgm-enable">음악 켜기</button>
+              <div id="bgmHint" class="bgm-hint">BGM: How Long Will I Love You</div>
+            </div>
           </div>
-          <div class="hint">← → 이동 · Z/스페이스 점프 · R 재시작</div>
-          <div id="audioPanel" class="audio-panel" aria-label="오디오 설정">
-            <label class="audio-item"><input type="checkbox" id="bgmToggle" checked /> BGM</label>
-            <label class="audio-item"><input type="range" id="bgmVol" min="0" max="100" value="18" /> </label>
-            <label class="audio-item"><input type="checkbox" id="sfxToggle" checked /> 효과음</label>
-            <label class="audio-item"><input type="range" id="sfxVol" min="0" max="100" value="55" /> </label>
-            <div id="bgmHint" class="bgm-hint">BGM 대기: How Long Will I Love You</div>
-          </div>
-        </div>
 
-        <div id="touchPad" class="touch-pad" aria-hidden="false">
-          <div class="touch-left">
-            <button type="button" id="padLeft" class="pad-btn" aria-label="왼쪽">◀</button>
-            <button type="button" id="padRight" class="pad-btn" aria-label="오른쪽">▶</button>
+          <div id="touchPad" class="touch-pad" aria-hidden="false">
+            <div class="touch-left">
+              <button type="button" id="padLeft" class="pad-btn" aria-label="왼쪽">◀</button>
+              <button type="button" id="padRight" class="pad-btn" aria-label="오른쪽">▶</button>
+            </div>
+            <button type="button" id="padJump" class="pad-btn pad-jump" aria-label="점프">점프</button>
           </div>
-          <button type="button" id="padJump" class="pad-btn pad-jump" aria-label="점프">점프</button>
-        </div>
 
-        <div id="overlay" class="overlay hidden" role="dialog" aria-modal="true">
-          <div class="overlay-card">
-            <h1 id="overlayTitle">준비됐나요?</h1>
-            <p id="overlayBody">볼떵이가 볼빵이를 만나러 갑니다.</p>
-            <div class="overlay-actions">
-              <button id="btnStart" type="button" class="hidden">시작하기</button>
-              <button id="btnNearEnding" type="button" class="ghost hidden" title="개발용 테스트">
-                엔딩 근처에서 시작 (테스트)
-              </button>
-              <button id="btnRestart" type="button" class="ghost hidden">처음부터</button>
+          <div id="overlay" class="overlay hidden" role="dialog" aria-modal="true">
+            <div class="overlay-card">
+              <h1 id="overlayTitle">준비됐나요?</h1>
+              <p id="overlayBody">볼떵이가 볼빵이를 만나러 갑니다.</p>
+              <div class="overlay-actions">
+                <button id="btnStart" type="button" class="hidden">시작하기</button>
+                <button id="btnNearEnding" type="button" class="ghost hidden" title="개발용 테스트">
+                  엔딩 근처에서 시작 (테스트)
+                </button>
+                <button id="btnRestart" type="button" class="ghost hidden">처음부터</button>
+              </div>
             </div>
           </div>
         </div>
+
+        <aside id="endingLetter" class="ending-letter" aria-hidden="true">
+          <img
+            id="endingLetterImg"
+            class="ending-letter-img"
+            src="/assets/ending-letter.png"
+            alt="내 복덩이에게 보내는 편지"
+            draggable="false"
+          />
+        </aside>
       </div>
 
       <footer class="footer">

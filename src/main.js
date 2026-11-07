@@ -18,6 +18,7 @@
 
 import {
   unlockAudio,
+  enableBgmFromGesture,
   ensureBgmPlaying,
   playJump,
   playHeal,
@@ -29,37 +30,86 @@ import {
   audioNeededBgmLabel,
 } from './audio.js';
 
+/** Live build stamp — must appear on published site after refresh. */
+export const BUILD_VERSION = '20261107-2135-weather';
+export const BUILD_EDITED_AT = '2026-11-07T21:35+09:00';
+
 const W = 960;
 const H = 540;
 /** Align with season BG road (not mid-air above the painted street). */
 const GROUND_Y = Math.round(H * 0.865);
 const BILLBOARD_H = Math.round(H * 0.6); // 55–65% of H
-const MOVE_SPEED = 3.8;
-const GRAVITY = 0.42;
-const JUMP_V_MAX = -16.2; // clears tallest villain + 0.5× body (verified)
-const JUMP_V_MIN = -9.2; // tap jump
-const JUMP_CUT_MULT = 0.42; // release early → short hop
+const MOVE_SPEED = 3.9;
+/** Gravity per ~16.67ms frame; scaled by dt/16.67 for stable hang. */
+const GRAVITY = 0.55;
+const JUMP_V_MAX = -17.5; // hang ~1.05s @60fps; peak ≥ villain+0.5 body
+const JUMP_CUT_MULT = 0.4; // release early → short hop
 const COYOTE_MS = 100;
 const JUMP_BUFFER_MS = 120;
 const AIR_CONTROL = 1.0; // full L/R in air
-const PATROL_SPEED_FRAC = 0.38; // 30–45% of player speed
+const PATROL_SPEED_FRAC = 0.4; // 30–45% of player speed
 const INVINCIBLE_MS = 2000; // after exercise eject
 const MAX_HEARTS = 3;
 const FLOWER_HOLD_MS = 900;
 const HUG_FRAME_MS = 700;
+/** After final hug pose lands, wait then reveal letter. */
+const LETTER_DELAY_MS = 600;
+const LETTER_FADE_MS = 800;
 const ENDING_TRIGGER_DIST = 160;
 const CLOSE_STEP = 40;
+/** Season FX crossfade when the band changes. */
+const WEATHER_FADE_MS = 1500;
+const WEATHER_KINDS = ['snow', 'petal', 'firefly', 'leaf'];
+const LEAF_COLORS = ['#e07030', '#c03828', '#d4a020', '#b84818', '#e88840'];
+const PETAL_COLORS = ['#f5b8c8', '#f0a0b8', '#ffd0dc', '#e890a8'];
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
-/** Theoretical max jump height (px) from JUMP_V_MAX + GRAVITY. */
+/** Peak jump height (px) from JUMP_V_MAX + GRAVITY (frame-normalized). */
 const MAX_JUMP_H = (JUMP_V_MAX * JUMP_V_MAX) / (2 * GRAVITY);
+const JUMP_HANG_S = (2 * Math.abs(JUMP_V_MAX)) / GRAVITY / 60;
 
 /**
- * Shared standing body height (head→feet).
+ * Shared standing body height (head→feet opaque).
  * Exclude ears / flower loft / dress flare from the match target.
  */
-const CHARACTER_BODY_H = Math.round(H * 0.245);
+const CHARACTER_BODY_H = Math.round(H * 0.255);
 
+/** Integer cell size — NEVER use img.width/cols (1619/5=323.8 bleeds next frame). */
 const PLAYER_CELL = { cols: 5, rows: 3, fw: 323, fh: 323 };
+/** Encounter sheets include character+machine; integer cells (1774/4→443.5). */
+const EXERCISE_CELL = { cols: 4, rows: 2, fw: 443, fh: 443 };
+const EXERCISE_META = {
+  treadmillEncounter: { footY: 403, headTop: 39, bodyCx: 230, bodyH: 364 },
+  bikeEncounter: { footY: 413, headTop: 26, bodyCx: 235, bodyH: 387 },
+};
+/** 볼떵이 burpee(0–3) / pushup(4–7) — 4×2, integer 443 cells. */
+const WORKOUT_CELL = { cols: 4, rows: 2, fw: 443, fh: 443 };
+const WORKOUT_FRAMES = [
+  { footY: 413, headTop: 76, bodyCx: 226, bodyH: 337 }, // burpee stand
+  { footY: 421, headTop: 141, bodyCx: 233, bodyH: 280 }, // burpee crouch
+  { footY: 419, headTop: 146, bodyCx: 232, bodyH: 273 }, // burpee plank
+  { footY: 405, headTop: 51, bodyCx: 224, bodyH: 354 }, // burpee jump (lift)
+  { footY: 389, headTop: 107, bodyCx: 241, bodyH: 282 }, // pushup high
+  { footY: 382, headTop: 128, bodyCx: 237, bodyH: 254 }, // pushup mid
+  { footY: 385, headTop: 162, bodyCx: 235, bodyH: 223 }, // pushup low
+  { footY: 388, headTop: 107, bodyCx: 243, bodyH: 281 }, // pushup up
+];
+const WORKOUT_MS = 2000;
+/** 김계란 boss sheet frames. */
+const BOSS_CELL = { cols: 4, rows: 2, fw: 443, fh: 443 };
+const BOSS_FRAMES = [
+  { footY: 415, headTop: 30, bodyCx: 233, bodyH: 385 }, // idle
+  { footY: 415, headTop: 61, bodyCx: 221, bodyH: 354 }, // run A
+  { footY: 403, headTop: 67, bodyCx: 208, bodyH: 336 }, // run B
+  { footY: 418, headTop: 119, bodyCx: 210, bodyH: 299 }, // crouch telegraph
+  { footY: 353, headTop: 25, bodyCx: 229, bodyH: 328 }, // air jump
+  { footY: 408, headTop: 134, bodyCx: 216, bodyH: 274 }, // land
+  { footY: 412, headTop: 25, bodyCx: 232, bodyH: 387 }, // point / instruct
+  { footY: 412, headTop: 25, bodyCx: 231, bodyH: 387 }, // stopwatch
+];
+const BOSS_TELEGRAPH_MS = 600;
+const BOSS_REST_MS = 800;
+const BOSS_JUMP_MS = 520;
+const BOSS_JUMP_PEAK = 130;
 /** Per-frame foot/body metrics in cell pixels (idle frame 0 is scale reference). */
 const PLAYER_FRAMES = [
   { footY: 303, headTop: 33, bodyH: 271, bodyCx: 179, torsoW: 189, headW: 139 },
@@ -107,11 +157,13 @@ const BOLPPANGI = {
 };
 const BOLPPANGI_SCALE = CHARACTER_BODY_H / BOLPPANGI.behind.bodyH;
 /**
- * Same scale for every 볼떵이 draw (idle/walk/jump/exercise/ending approach).
- * +20% vs raw body match so head/torso read equal next to 볼빵이 dress mass
- * (still one scale — not an ending-only oversized double).
+ * Match opaque body height to 볼빵이, then scale face width to hers
+ * (dress/ears excluded). ONE scale for walk/jump/exercise/ending.
  */
-const PLAYER_SCALE = (CHARACTER_BODY_H / PLAYER_REF.bodyH) * 1.2;
+const BODY_MATCH = CHARACTER_BODY_H / PLAYER_REF.bodyH;
+const FACE_MATCH =
+  (BOLPPANGI.behind.headW * BOLPPANGI_SCALE) / Math.max(1, PLAYER_REF.headW);
+const PLAYER_SCALE = Math.max(BODY_MATCH, FACE_MATCH) * 1.18;
 const PLAYER_H = Math.round(PLAYER_REF.bodyH * PLAYER_SCALE);
 const PLAYER_W = Math.round(PLAYER_REF.torsoW * PLAYER_SCALE * 0.82);
 
@@ -130,6 +182,8 @@ const BOL_SCALE = BOLPPANGI_SCALE;
 
 const ASSETS = {
   playerSheet: 'boltongi-walk-jump.png',
+  workoutSheet: 'boltongi-burpee-pushup.png',
+  bossSheet: 'boss-kim-gyeran.png',
   treadmillEncounter: 'exercise-treadmill-encounter.png',
   bikeEncounter: 'exercise-bike-encounter.png',
   treadmillVillain: 'treadmill-villain.png',
@@ -155,10 +209,22 @@ const ASSETS = {
   extremejob: 'billboard-extremejob.png',
   cyrano: 'billboard-cyrano.png',
   dongbang: 'memory-dongbangshinki.png',
+  gaenari: 'memory-gaenari-apt.png',
   wedding: 'wedding-billboard.png',
+  coupleBoard01: 'couple-board-01-selfie.png',
+  coupleBoard02: 'couple-board-02-summerfesta.png',
+  coupleBoard03: 'couple-board-03-anniversary10.png',
+  coupleBoard04: 'couple-board-04-outdoor.png',
+  coupleBoard05: 'couple-board-05-cafe.png',
+  coupleBoard06: 'couple-board-06-spring.png',
+  coupleBoard07: 'couple-board-07-park.png',
+  coupleBoard08: 'couple-board-08-park2.png',
+  coupleBoard09: 'couple-board-09-willow.png',
+  coupleBoard10: 'couple-board-10-car.png',
   bolBehind: 'bolppangi-flowers-behind.png',
   bolFront: 'bolppangi-flowers-front.png',
   hug: 'hug-4cut.png',
+  endingLetter: 'ending-letter.png',
   bgWinter: 'bg-winter.png',
   bgSpring: 'bg-spring.png',
   bgSummer: 'bg-summer.png',
@@ -187,7 +253,19 @@ const BOUNDS = {
   cyrano: { ox: 113, oy: 48, ow: 1087, oh: 1126 },
   lv: { ox: 225, oy: 44, ow: 1086, oh: 949 },
   dongbang: { ox: 205, oy: 74, ow: 707, oh: 1286 },
+  gaenari: { ox: 55, oy: 28, ow: 1420, oh: 964 },
   wedding: { ox: 102, oy: 23, ow: 818, oh: 1492 },
+  coupleBoard01: { ox: 0, oy: 0, ow: 520, oh: 625 },
+  coupleBoard02: { ox: 0, oy: 0, ow: 600, oh: 624 },
+  coupleBoard03: { ox: 0, oy: 0, ow: 556, oh: 598 },
+  coupleBoard04: { ox: 0, oy: 0, ow: 560, oh: 635 },
+  coupleBoard05: { ox: 1, oy: 0, ow: 488, oh: 463 },
+  coupleBoard06: { ox: 0, oy: 0, ow: 444, oh: 357 },
+  coupleBoard07: { ox: 0, oy: 2, ow: 438, oh: 627 },
+  coupleBoard08: { ox: 0, oy: 0, ow: 582, oh: 631 },
+  coupleBoard09: { ox: 0, oy: 0, ow: 450, oh: 624 },
+  coupleBoard10: { ox: 0, oy: 0, ow: 540, oh: 628 },
+  endingLetter: { ox: 0, oy: 0, ow: 602, oh: 900 },
   bolBehind: { ox: 165, oy: 129, ow: 928, oh: 1004 },
   bolFront: { ox: 46, oy: 59, ow: 1187, oh: 1095 },
   chicken: { ox: 298, oy: 131, ow: 852, oh: 782 },
@@ -211,6 +289,7 @@ const MEMORY_DEFS = [
   { id: 'mcdonalds', key: 'mcdonalds', label: '맥도날드', kind: 'billboard', hFrac: 0.58 },
   // Standalone portrait art (ea77438a ≡ bb05cdea) — grounded display, no extra frame
   { id: 'dongbang', key: 'dongbang', label: '동방신기', kind: 'portrait', hFrac: 0.58 },
+  { id: 'gaenari', key: 'gaenari', label: '개나리아파트', kind: 'building', hFrac: 0.72 },
   { id: 'coffee', key: 'coffee', label: '툇마루커피', kind: 'billboard', hFrac: 0.55 },
   { id: 'sealife', key: 'sealife', label: '아쿠아리움', kind: 'billboard', hFrac: 0.55 },
   { id: 'paragliding', key: 'paragliding', label: '패러글라이딩', kind: 'billboard', hFrac: 0.58 },
@@ -224,6 +303,23 @@ const MEMORY_DEFS = [
   { id: 'wedding', key: 'wedding', label: '결혼사진', kind: 'ending', hFrac: 0.62 },
 ];
 
+/**
+ * Extra couple photo billboards — decorative only (no collision, not HUD labels).
+ * Placed in quieter gaps (off villain centers) so boards don't overlap memories.
+ */
+const COUPLE_BOARD_DEFS = [
+  { id: 'cb01', key: 'coupleBoard01', after: 0, t: 0.28, hFrac: 0.62 },
+  { id: 'cb02', key: 'coupleBoard02', after: 1, t: 0.72, hFrac: 0.6 },
+  { id: 'cb03', key: 'coupleBoard03', after: 3, t: 0.28, hFrac: 0.6 },
+  { id: 'cb04', key: 'coupleBoard04', after: 4, t: 0.72, hFrac: 0.6 },
+  { id: 'cb05', key: 'coupleBoard05', after: 6, t: 0.28, hFrac: 0.58 },
+  { id: 'cb06', key: 'coupleBoard06', after: 8, t: 0.72, hFrac: 0.56 },
+  { id: 'cb07', key: 'coupleBoard07', after: 9, t: 0.28, hFrac: 0.64 },
+  { id: 'cb08', key: 'coupleBoard08', after: 12, t: 0.72, hFrac: 0.6 },
+  { id: 'cb09', key: 'coupleBoard09', after: 14, t: 0.28, hFrac: 0.64 },
+  { id: 'cb10', key: 'coupleBoard10', after: 15, t: 0.72, hFrac: 0.6 },
+];
+
 const MISSING_ASSETS = [];
 
 /** @type {Record<string, HTMLImageElement>} */
@@ -234,13 +330,14 @@ const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
 const hpLabel = document.getElementById('hpLabel');
-const zoneLabel = document.getElementById('zoneLabel');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlayTitle');
 const overlayBody = document.getElementById('overlayBody');
 const btnStart = document.getElementById('btnStart');
 const btnNearEnding = document.getElementById('btnNearEnding');
 const btnRestart = document.getElementById('btnRestart');
+const stageWrap = document.getElementById('stageWrap');
+const endingLetterEl = document.getElementById('endingLetter');
 
 const keys = new Set();
 const touch = { left: false, right: false, jump: false };
@@ -248,12 +345,12 @@ let jumpQueued = false;
 let jumpHeld = false;
 let jumpWasHeld = false;
 
-/** Season bands by memory index (19 memories: 0..18). */
+/** Season bands by memory index (20 memories: 0..19 after 개나리). */
 const SEASON_BANDS = [
   { id: 'winter', i0: 0, i1: 3, label: '겨울' },
-  { id: 'spring', i0: 4, i1: 8, label: '봄' },
-  { id: 'summer', i0: 9, i1: 13, label: '여름' },
-  { id: 'autumn', i0: 14, i1: 18, label: '가을' },
+  { id: 'spring', i0: 4, i1: 9, label: '봄' },
+  { id: 'summer', i0: 10, i1: 14, label: '여름' },
+  { id: 'autumn', i0: 15, i1: 19, label: '가을' },
 ];
 
 function loadImage(name) {
@@ -265,12 +362,96 @@ function loadImage(name) {
   });
 }
 
+/**
+ * Remove detached edge-bleed fragments from sheet cells.
+ * Keeps the largest opaque component (body + attached tail) intact.
+ */
+function sanitizeSheetCells(img, cols, rows, fw, fh, maxExtraPx = 500) {
+  const out = document.createElement('canvas');
+  out.width = cols * fw;
+  out.height = rows * fh;
+  const g = out.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, out.width, out.height);
+  g.drawImage(img, 0, 0);
+
+  for (let i = 0; i < cols * rows; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const ox = col * fw;
+    const oy = row * fh;
+    const data = g.getImageData(ox, oy, fw, fh);
+    const a = data.data;
+    const seen = new Uint8Array(fw * fh);
+    const comps = [];
+    for (let y = 0; y < fh; y++) {
+      for (let x = 0; x < fw; x++) {
+        const i0 = y * fw + x;
+        if (seen[i0] || a[i0 * 4 + 3] < 24) continue;
+        const stack = [i0];
+        seen[i0] = 1;
+        const pixels = [i0];
+        let minX = x;
+        let maxX = x;
+        while (stack.length) {
+          const cur = stack.pop();
+          const cx = cur % fw;
+          const cy = (cur / fw) | 0;
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          const tryPush = (nx, ny) => {
+            if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) return;
+            const ni = ny * fw + nx;
+            if (seen[ni] || a[ni * 4 + 3] < 24) return;
+            seen[ni] = 1;
+            stack.push(ni);
+            pixels.push(ni);
+          };
+          tryPush(cx + 1, cy);
+          tryPush(cx - 1, cy);
+          tryPush(cx, cy + 1);
+          tryPush(cx, cy - 1);
+        }
+        comps.push({ n: pixels.length, minX, maxX, pixels });
+      }
+    }
+    if (comps.length < 2) continue;
+    comps.sort((u, v) => v.n - u.n);
+    for (let c = 1; c < comps.length; c++) {
+      const blob = comps[c];
+      const nearEdge =
+        blob.minX <= 2 || blob.maxX >= fw - 3 || blob.maxX <= 14 || blob.minX >= fw - 15;
+      if (blob.n <= maxExtraPx && nearEdge) {
+        for (const pi of blob.pixels) {
+          const o = pi * 4;
+          a[o] = 0;
+          a[o + 1] = 0;
+          a[o + 2] = 0;
+          a[o + 3] = 0;
+        }
+      }
+    }
+    g.putImageData(data, ox, oy);
+  }
+  return out;
+}
+
 async function loadAll() {
   await Promise.all(
     Object.entries(ASSETS).map(async ([key, file]) => {
       images[key] = await loadImage(file);
     }),
   );
+  // Fix adjacent-frame ear/tail slivers on 볼떵이 walk/jump sheet (keep attached tail).
+  if (images.playerSheet) {
+    images.playerSheet = sanitizeSheetCells(
+      images.playerSheet,
+      PLAYER_CELL.cols,
+      PLAYER_CELL.rows,
+      PLAYER_CELL.fw,
+      PLAYER_CELL.fh,
+    );
+  }
 }
 
 function layoutSize(key, hFrac = 0.6) {
@@ -305,10 +486,15 @@ function drawOpaqueAt(key, worldCX, groundY, hFrac, camX) {
   return { w, h, sx, sy };
 }
 
-function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false) {
+function sheetCellSize(img, cols, rows, cellW, cellH) {
+  const fw = cellW || Math.floor(img.width / cols);
+  const fh = cellH || Math.floor(img.height / rows);
+  return { fw, fh };
+}
+
+function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false, cellW = null, cellH = null) {
   if (!img) return;
-  const fw = img.width / cols;
-  const fh = img.height / rows;
+  const { fw, fh } = sheetCellSize(img, cols, rows, cellW, cellH);
   const col = index % cols;
   const row = Math.floor(index / cols);
   const scale = Math.min(dw / fw, dh / fh);
@@ -330,11 +516,24 @@ function drawSheetFrame(img, cols, rows, index, dx, dy, dw, dh, flip = false) {
 /**
  * Draw a sheet frame with fixed world scale + foot anchor.
  * feetWorldX/Y = where the source footY pixel should land in world space.
+ * Pass integer cellW/cellH to avoid fractional bleed into the next frame.
  */
-function drawSheetAtFeet(img, cols, rows, index, meta, scale, feetWorldX, feetWorldY, camX, flip = false) {
+function drawSheetAtFeet(
+  img,
+  cols,
+  rows,
+  index,
+  meta,
+  scale,
+  feetWorldX,
+  feetWorldY,
+  camX,
+  flip = false,
+  cellW = null,
+  cellH = null,
+) {
   if (!img || !meta) return null;
-  const fw = img.width / cols;
-  const fh = img.height / rows;
+  const { fw, fh } = sheetCellSize(img, cols, rows, cellW, cellH);
   const col = index % cols;
   const row = Math.floor(index / cols);
   const w = fw * scale;
@@ -395,6 +594,40 @@ function buildMemories() {
   });
 }
 
+function buildCoupleBoards(memories) {
+  const boards = COUPLE_BOARD_DEFS.map((def) => {
+    const size = layoutSize(def.key, def.hFrac);
+    // Cap width so boards stay readable but don't swallow the whole gap
+    let w = size.w;
+    let h = size.h;
+    const maxW = Math.round(W * 0.55);
+    if (w > maxW) {
+      w = maxW;
+      const b = BOUNDS[def.key];
+      h = Math.round((b.oh / b.ow) * w);
+    }
+    return {
+      id: def.id,
+      key: def.key,
+      cx: betweenSpot(memories, def.after, def.t),
+      w,
+      h,
+      hFrac: def.hFrac,
+    };
+  });
+  // Ensure no two boards overlap horizontally (half-widths + padding)
+  boards.sort((a, b) => a.cx - b.cx);
+  for (let i = 1; i < boards.length; i++) {
+    const prev = boards[i - 1];
+    const cur = boards[i];
+    const minGap = prev.w / 2 + cur.w / 2 + 80;
+    if (cur.cx - prev.cx < minGap) {
+      cur.cx = prev.cx + minGap;
+    }
+  }
+  return boards;
+}
+
 function betweenSpot(memories, i, t = 0.5) {
   if (i < 0) return memories[0].cx - SPACING * 0.45;
   if (i >= memories.length - 1) return memories[memories.length - 1].cx + SPACING * 0.4;
@@ -406,6 +639,7 @@ let state;
 
 function createState(mode = 'normal') {
   const memories = buildMemories();
+  const coupleBoards = buildCoupleBoards(memories);
   const wedding = memories[memories.length - 1];
   const near = mode === 'nearEnding';
   const startMem = memories[0];
@@ -484,8 +718,8 @@ function createState(mode = 'normal') {
       id: 'tm-su1',
       type: 'treadmill',
       season: 'summer',
-      x0: gapCenter(10) - 100,
-      x1: gapCenter(10) + 60,
+      x0: gapCenter(11) - 100,
+      x1: gapCenter(11) + 60,
       speed: patrolSpeed * 1.05,
       cols: 4,
       rows: 2,
@@ -497,8 +731,8 @@ function createState(mode = 'normal') {
       id: 'bk-su2',
       type: 'bike',
       season: 'summer',
-      x0: gapCenter(12) - 50,
-      x1: gapCenter(12) + 110,
+      x0: gapCenter(13) - 50,
+      x1: gapCenter(13) + 110,
       speed: patrolSpeed * 0.95,
       cols: 4,
       rows: 2,
@@ -506,6 +740,41 @@ function createState(mode = 'normal') {
       sheet: 'bikeEncounter',
       idle: 'bikeVillain',
     }),
+  ];
+
+  // Late-game boss: 김계란 — autumn gap before ending, never enters wedding zone
+  const bossH = Math.round(PLAYER_H * 1.35);
+  const bossW = Math.round(bossH * 0.55);
+  const endingKeepOut = wedding.cx - W * 0.85;
+  const bossMin = Math.min(gapCenter(16) - 160, endingKeepOut - 420);
+  const bossMax = Math.min(gapCenter(17) + 40, endingKeepOut - 80);
+  const bosses = [
+    {
+      id: 'kim-gyeran',
+      type: 'boss',
+      x: bossMin + 40,
+      y: GROUND_Y - bossH,
+      w: bossW,
+      h: bossH,
+      hitPadX: Math.round(bossW * 0.18),
+      hitPadTop: Math.round(bossH * 0.12),
+      hitPadBot: Math.round(bossH * 0.06),
+      patrolMin: bossMin,
+      patrolMax: Math.max(bossMin + 120, bossMax),
+      dir: 1,
+      speed: patrolSpeed * 1.15,
+      season: 'autumn',
+      phase: 'patrol', // patrol | telegraph | jump | rest | instruct
+      timer: 0,
+      frame: 0,
+      frameT: 0,
+      airY: 0,
+      jumpFromX: 0,
+      jumpLandX: 0,
+      jumpT: 0,
+      contactLock: false,
+      scale: bossH / BOSS_FRAMES[0].bodyH,
+    },
   ];
 
   // Platforms: one-way tops. Heights within jump envelope; widths ≥ 2× player.
@@ -521,22 +790,22 @@ function createState(mode = 'normal') {
     { id: 'sp2', x: gapCenter(5) - platW / 2 + 20, y: GROUND_Y - h2, w: platW, h: 16, kind: 'brick', season: 'spring' },
     { id: 'sp3', x: gapCenter(6) - platW / 2 - 20, y: GROUND_Y - h1, w: platW * 1.1, h: 16, kind: 'wood', season: 'spring' },
     // Summer varied heights (bypass ground patrols)
-    { id: 'su1', x: gapCenter(9) - platW / 2, y: GROUND_Y - h3, w: platW, h: 16, kind: 'stone', season: 'summer' },
-    { id: 'su2', x: gapCenter(10) - platW / 2 + 50, y: GROUND_Y - h2, w: platW, h: 16, kind: 'wood', season: 'summer' },
-    { id: 'su3', x: gapCenter(11) - platW / 2 - 30, y: GROUND_Y - h1, w: platW * 1.15, h: 16, kind: 'brick', season: 'summer' },
-    { id: 'su4', x: gapCenter(12) - platW / 2 + 10, y: GROUND_Y - h2, w: platW, h: 16, kind: 'stone', season: 'summer' },
-    // Autumn — gentle low step only, clear of wedding
-    { id: 'a1', x: gapCenter(15) - platW / 2, y: GROUND_Y - Math.round(MAX_JUMP_H * 0.35), w: platW, h: 16, kind: 'wood', season: 'autumn' },
+    { id: 'su1', x: gapCenter(10) - platW / 2, y: GROUND_Y - h3, w: platW, h: 16, kind: 'stone', season: 'summer' },
+    { id: 'su2', x: gapCenter(11) - platW / 2 + 50, y: GROUND_Y - h2, w: platW, h: 16, kind: 'wood', season: 'summer' },
+    { id: 'su3', x: gapCenter(12) - platW / 2 - 30, y: GROUND_Y - h1, w: platW * 1.15, h: 16, kind: 'brick', season: 'summer' },
+    { id: 'su4', x: gapCenter(13) - platW / 2 + 10, y: GROUND_Y - h2, w: platW, h: 16, kind: 'stone', season: 'summer' },
+    // Autumn — gentle low step only, clear of wedding / boss arena
+    { id: 'a1', x: gapCenter(16) - platW / 2, y: GROUND_Y - Math.round(MAX_JUMP_H * 0.35), w: platW, h: 16, kind: 'wood', season: 'autumn' },
   ];
 
   const foods = [
     { id: 'c1', kind: 'chicken', x: gapCenter(0) - 20, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'winter' },
     { id: 'p-w', kind: 'pizza', x: platforms[0].x + platforms[0].w / 2 - 24, y: platforms[0].y - 52, w: 48, h: 48, taken: false, season: 'winter' },
     { id: 'p-sp', kind: 'burger', x: platforms[2].x + platforms[2].w / 2 - 24, y: platforms[2].y - 52, w: 48, h: 48, taken: false, season: 'spring' },
-    { id: 'c-sp', kind: 'chicken', x: gapCenter(7) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'spring' },
+    { id: 'c-sp', kind: 'chicken', x: gapCenter(8) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'spring' },
     { id: 'p-su', kind: 'pizza', x: platforms[5].x + platforms[5].w / 2 - 24, y: platforms[5].y - 52, w: 48, h: 48, taken: false, season: 'summer' },
     { id: 'b-su', kind: 'burger', x: platforms[7].x + platforms[7].w / 2 - 24, y: platforms[7].y - 52, w: 48, h: 48, taken: false, season: 'summer' },
-    { id: 'c-a', kind: 'chicken', x: gapCenter(16) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'autumn' },
+    { id: 'c-a', kind: 'chicken', x: gapCenter(17) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'autumn' },
   ];
 
   const checkpoints = SEASON_BANDS.map((b) => {
@@ -561,6 +830,7 @@ function createState(mode = 'normal') {
     cameraX: Math.max(0, playerStartX - W * 0.28),
     cameraLock: false,
     memories,
+    coupleBoards,
     worldEnd,
     platforms,
     checkpoints,
@@ -583,9 +853,12 @@ function createState(mode = 'normal') {
       jumpBuffer: 0,
       jumping: false,
       onPlatform: null,
+      hidden: false,
     },
     foods,
     exercises,
+    bosses,
+    workout: null, // { kind, frame, t, bossId } while player forced exercise
     ending: {
       phase: 'idle',
       bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85),
@@ -601,29 +874,409 @@ function createState(mode = 'normal') {
       damageLocked: false,
       hideIndividuals: false,
       hugAnchorX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.35),
+      /** Letter reveal: delay after final hug pose, then 0.8s slide-in. */
+      letterReady: false,
+      letterT: 0,
+      letterShown: false,
+      letterLayout: 'side', // 'side' | 'below'
+      letterPrompted: false,
     },
     now: performance.now(),
     floatMsgs: [],
     _exerciseLock: false,
+    weather: createWeatherState(seasonIndexFromProgress(near ? 1 : 0)),
   };
 }
 
-function showOverlay(title, body, { start = false, near = false, restart = false } = {}) {
+/** Season index 0..3 from a fake progress (for createState before camera exists). */
+function seasonIndexFromProgress(p) {
+  const scaled = Math.max(0, Math.min(1, p)) * (SEASON_KEYS.length - 1);
+  const i0 = Math.min(3, Math.floor(scaled));
+  const i1 = Math.min(3, i0 + 1);
+  const t = scaled - i0;
+  return t > 0.5 ? i1 : i0;
+}
+
+function isMobileWeather() {
+  const w = stageWrap?.clientWidth || window.innerWidth || W;
+  return w < 640 || (window.matchMedia?.('(pointer: coarse)')?.matches && w < 900);
+}
+
+function weatherCap(kind) {
+  const mobile = isMobileWeather();
+  if (kind === 0) return mobile ? 22 : 38; // snow
+  if (kind === 1) return mobile ? 16 : 28; // petal
+  if (kind === 2) return mobile ? 10 : 18; // firefly
+  return mobile ? 14 : 24; // leaf
+}
+
+function createWeatherState(kind = 0) {
+  const pool = [];
+  const maxPool = 48; // shared pool; reuse off-screen
+  for (let i = 0; i < maxPool; i++) {
+    pool.push({
+      alive: false,
+      kind: 0,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      size: 2,
+      rot: 0,
+      rotV: 0,
+      phase: 0,
+      sway: 0,
+      color: '#fff',
+      alpha: 1,
+      grounded: false,
+      groundT: 0,
+      fade: 1,
+    });
+  }
+  return {
+    kind,
+    prevKind: -1,
+    fadeIn: 1,
+    fadeOut: 0,
+    particles: pool,
+  };
+}
+
+function resetWeather(weather, kind) {
+  for (const p of weather.particles) p.alive = false;
+  weather.kind = kind;
+  weather.prevKind = -1;
+  weather.fadeIn = 1;
+  weather.fadeOut = 0;
+}
+
+function allocWeatherParticle(weather) {
+  for (const p of weather.particles) {
+    if (!p.alive) return p;
+  }
+  // Reuse farthest / oldest off-screen-ish: recycle first grounded-fading or first
+  let best = weather.particles[0];
+  for (const p of weather.particles) {
+    if (p.grounded || p.y > H + 20 || p.y < -40) {
+      best = p;
+      break;
+    }
+  }
+  return best;
+}
+
+function spawnWeatherParticle(weather, kind, preferTop = true) {
+  const p = allocWeatherParticle(weather);
+  p.alive = true;
+  p.kind = kind;
+  p.grounded = false;
+  p.groundT = 0;
+  p.fade = 1;
+  p.phase = Math.random() * Math.PI * 2;
+  p.sway = 0.4 + Math.random() * 1.2;
+  p.rot = Math.random() * Math.PI * 2;
+  p.x = Math.random() * (W + 40) - 20;
+  if (kind === 2) {
+    // Fireflies drift near the grass line
+    p.y = GROUND_Y - 18 - Math.random() * 90;
+    p.x = Math.random() * W;
+    p.vx = (Math.random() - 0.5) * 0.35;
+    p.vy = (Math.random() - 0.5) * 0.22;
+    p.size = 1 + Math.floor(Math.random() * 2);
+    p.color = Math.random() > 0.35 ? '#f0e060' : '#ffe888';
+    p.alpha = 0.35 + Math.random() * 0.4;
+    p.rotV = 0;
+  } else {
+    p.y = preferTop ? -10 - Math.random() * 40 : Math.random() * (GROUND_Y - 40);
+    if (kind === 0) {
+      p.size = 1 + Math.floor(Math.random() * 3);
+      p.vx = (Math.random() - 0.5) * 0.45;
+      p.vy = 0.35 + Math.random() * 0.85;
+      p.color = '#ffffff';
+      p.alpha = 0.45 + Math.random() * 0.45;
+      p.rotV = (Math.random() - 0.5) * 0.04;
+    } else if (kind === 1) {
+      p.size = 2 + Math.floor(Math.random() * 3);
+      p.vx = -0.35 + Math.random() * 0.2;
+      p.vy = 0.4 + Math.random() * 0.7;
+      p.color = PETAL_COLORS[(Math.random() * PETAL_COLORS.length) | 0];
+      p.alpha = 0.55 + Math.random() * 0.35;
+      p.rotV = 0.03 + Math.random() * 0.06;
+    } else {
+      p.size = 3 + Math.floor(Math.random() * 3);
+      p.vx = -0.55 + Math.random() * 0.35;
+      p.vy = 0.45 + Math.random() * 0.75;
+      p.color = LEAF_COLORS[(Math.random() * LEAF_COLORS.length) | 0];
+      p.alpha = 0.65 + Math.random() * 0.3;
+      p.rotV = 0.04 + Math.random() * 0.08;
+    }
+  }
+  return p;
+}
+
+function countAliveKind(weather, kind) {
+  let n = 0;
+  for (const p of weather.particles) if (p.alive && p.kind === kind) n++;
+  return n;
+}
+
+function fireflyTargetCount() {
+  // Afternoon sparse → dusk denser within summer blend toward autumn
+  const { i0, t, p } = seasonBlend();
+  let dusk = 0.25;
+  if (i0 === 2) dusk = 0.25 + t * 0.75;
+  else if (seasonIndex() === 2) dusk = 0.55;
+  // Near end of world / evening autumn approach still summer-ish progress
+  if (p > 0.72 && p < 0.9) dusk = Math.max(dusk, (p - 0.72) / 0.18);
+  const cap = weatherCap(2);
+  return Math.max(3, Math.round(cap * (0.3 + 0.7 * Math.min(1, dusk))));
+}
+
+function updateWeather(dt) {
+  if (!state?.weather) return;
+  const weather = state.weather;
+  const target = seasonIndex();
+
+  if (target !== weather.kind) {
+    weather.prevKind = weather.kind;
+    weather.fadeOut = 1;
+    weather.kind = target;
+    weather.fadeIn = 0;
+  }
+
+  if (weather.fadeIn < 1) {
+    weather.fadeIn = Math.min(1, weather.fadeIn + dt / WEATHER_FADE_MS);
+  }
+  if (weather.fadeOut > 0) {
+    weather.fadeOut = Math.max(0, weather.fadeOut - dt / WEATHER_FADE_MS);
+    if (weather.fadeOut <= 0) weather.prevKind = -1;
+  }
+
+  const f = dt / 16.67;
+  const want = weather.kind === 2 ? fireflyTargetCount() : weatherCap(weather.kind);
+  // Ramp spawn with fade-in so new season eases in
+  const spawnWant = Math.ceil(want * (0.25 + 0.75 * weather.fadeIn));
+  let alive = countAliveKind(weather, weather.kind);
+  // Seed a few per frame until at cap (subtle, never burst-fill)
+  let budget = isMobileWeather() ? 1 : 2;
+  while (alive < spawnWant && budget-- > 0) {
+    spawnWeatherParticle(weather, weather.kind, true);
+    alive++;
+  }
+
+  for (const p of weather.particles) {
+    if (!p.alive) continue;
+    const isPrev = weather.prevKind >= 0 && p.kind === weather.prevKind;
+    const isCur = p.kind === weather.kind;
+    if (!isPrev && !isCur) {
+      p.alive = false;
+      continue;
+    }
+
+    p.phase += dt * 0.0025 * p.sway;
+
+    if (p.kind === 2) {
+      p.x += p.vx * f;
+      p.y += p.vy * f + Math.sin(p.phase) * 0.12 * f;
+      p.vx += (Math.random() - 0.5) * 0.02 * f;
+      p.vy += (Math.random() - 0.5) * 0.015 * f;
+      p.vx *= 0.99;
+      p.vy *= 0.99;
+      // Keep near grass belt
+      const yMin = GROUND_Y - 110;
+      const yMax = GROUND_Y - 8;
+      if (p.y < yMin) p.y = yMin;
+      if (p.y > yMax) p.y = yMax;
+      if (p.x < -10) p.x = W + 5;
+      if (p.x > W + 10) p.x = -5;
+      p.alpha = 0.2 + 0.75 * (0.5 + 0.5 * Math.sin(p.phase * 1.7));
+    } else if (p.grounded) {
+      p.groundT += dt;
+      if (p.groundT > 450 + (p.size | 0) * 80) {
+        p.fade -= dt / 500;
+        if (p.fade <= 0) p.alive = false;
+      }
+    } else {
+      // Wind sway
+      const wind = Math.sin(p.phase) * (p.kind === 0 ? 0.55 : 0.9);
+      p.x += (p.vx + wind) * f;
+      p.y += p.vy * f;
+      p.rot += p.rotV * f;
+      if (p.kind === 1) {
+        // Petals curve gently
+        p.vx += Math.sin(p.phase * 0.7) * 0.012 * f;
+      }
+      if (p.kind === 3 && p.y + p.size >= GROUND_Y) {
+        p.y = GROUND_Y - p.size;
+        p.vy = 0;
+        p.vx *= 0.3;
+        p.grounded = true;
+        p.groundT = 0;
+        p.rotV *= 0.2;
+      } else if (p.kind !== 3 && p.y > H + 12) {
+        // Recycle to top for falling types
+        p.x = Math.random() * (W + 40) - 20;
+        p.y = -8 - Math.random() * 30;
+        if (p.kind === 0) {
+          p.vy = 0.35 + Math.random() * 0.85;
+          p.size = 1 + Math.floor(Math.random() * 3);
+        } else if (p.kind === 1) {
+          p.vy = 0.4 + Math.random() * 0.7;
+          p.color = PETAL_COLORS[(Math.random() * PETAL_COLORS.length) | 0];
+        }
+      }
+      if (p.x < -30) p.x = W + 20;
+      if (p.x > W + 30) p.x = -20;
+    }
+
+    // Kill prev-season particles as fade-out completes
+    if (isPrev && weather.fadeOut <= 0.02) p.alive = false;
+  }
+
+  // Cap current kind if over (e.g. mobile resize)
+  let cur = countAliveKind(weather, weather.kind);
+  const cap = weather.kind === 2 ? fireflyTargetCount() : weatherCap(weather.kind);
+  if (cur > cap + 2) {
+    for (const p of weather.particles) {
+      if (cur <= cap) break;
+      if (p.alive && p.kind === weather.kind && !p.grounded) {
+        p.alive = false;
+        cur--;
+      }
+    }
+  }
+}
+
+function drawWeather() {
+  if (!state?.weather) return;
+  const weather = state.weather;
+  const letterClip =
+    state.ending?.letterShown && state.ending.letterLayout === 'side'
+      ? W * 0.62
+      : null;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+
+  for (const p of weather.particles) {
+    if (!p.alive) continue;
+    let mul = 1;
+    if (p.kind === weather.kind) mul = weather.fadeIn;
+    else if (p.kind === weather.prevKind) mul = weather.fadeOut;
+    else continue;
+    const a = p.alpha * p.fade * mul * 0.85;
+    if (a < 0.02) continue;
+    // Keep leaves/snow out from under the side letter (HTML is on top; still avoid clutter)
+    if (letterClip != null && p.x > letterClip) continue;
+
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    ctx.globalAlpha = a;
+
+    if (p.kind === 0) {
+      ctx.fillStyle = '#f5f8ff';
+      ctx.fillRect(x, y, p.size, p.size);
+      if (p.size >= 2) {
+        ctx.fillRect(x - 1, y + 1, p.size + 2, 1);
+      }
+    } else if (p.kind === 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      // Tiny petal diamond
+      ctx.fillRect(-1, -p.size / 2, 2, p.size);
+      ctx.fillRect(-p.size / 2, -1, p.size, 2);
+      ctx.restore();
+    } else if (p.kind === 2) {
+      ctx.fillStyle = p.color;
+      ctx.fillRect(x, y, p.size, p.size);
+      ctx.globalAlpha = a * 0.35;
+      ctx.fillRect(x - 1, y - 1, p.size + 2, p.size + 2);
+    } else {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      // Maple-ish pixel leaf
+      ctx.fillRect(-1, -p.size / 2, 2, p.size);
+      ctx.fillRect(-p.size / 2, -1, p.size, 2);
+      ctx.fillRect(-p.size / 2, -p.size / 2, 1, 1);
+      ctx.fillRect(p.size / 2 - 1, p.size / 2 - 1, 1, 1);
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function showOverlay(title, body, { start = false, near = false, restart = false, ending = false } = {}) {
   overlayTitle.textContent = title;
   overlayBody.textContent = body;
   btnStart.classList.toggle('hidden', !start);
   btnNearEnding.classList.toggle('hidden', !near);
   btnRestart.classList.toggle('hidden', !restart);
+  overlay.classList.toggle('overlay--ending', !!ending);
   overlay.classList.remove('hidden');
 }
 
 function hideOverlay() {
   overlay.classList.add('hidden');
+  overlay.classList.remove('overlay--ending');
+}
+
+function easeOutCubic(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return 1 - (1 - x) ** 3;
+}
+
+/** Prefer side letter when stage is wide enough for readable text; else below canvas. */
+function pickLetterLayout() {
+  const stageW = stageWrap?.clientWidth || window.innerWidth || W;
+  // Side column ~38% must stay ≥ ~200css px for Korean body text
+  if (stageW >= 560 && stageW * 0.38 >= 200) return 'side';
+  return 'below';
+}
+
+function resetEndingLetterDom() {
+  if (!endingLetterEl) return;
+  endingLetterEl.classList.remove('is-visible', 'is-side', 'is-below');
+  endingLetterEl.style.opacity = '0';
+  endingLetterEl.style.transform = 'translateX(36px)';
+  endingLetterEl.setAttribute('aria-hidden', 'true');
+}
+
+function syncEndingLetterDom() {
+  if (!endingLetterEl || !state) return;
+  const e = state.ending;
+  if (!e.letterShown && e.letterT <= 0) {
+    resetEndingLetterDom();
+    return;
+  }
+  const layout = e.letterLayout || pickLetterLayout();
+  e.letterLayout = layout;
+  endingLetterEl.classList.add('is-visible');
+  endingLetterEl.classList.toggle('is-side', layout === 'side');
+  endingLetterEl.classList.toggle('is-below', layout === 'below');
+  endingLetterEl.setAttribute('aria-hidden', 'false');
+  if (layout === 'side' && stageWrap) {
+    endingLetterEl.style.setProperty('--letter-stage-h', `${stageWrap.clientHeight}px`);
+  } else {
+    endingLetterEl.style.removeProperty('--letter-stage-h');
+  }
+  const t = easeOutCubic(e.letterT);
+  const slide = layout === 'below' ? 28 : 36;
+  endingLetterEl.style.opacity = String(t);
+  endingLetterEl.style.transform = `translateX(${(1 - t) * slide}px)`;
 }
 
 function startGame(mode = 'normal') {
   state = createState(mode);
   hideOverlay();
+  resetEndingLetterDom();
+  // Fresh pool each run — never stack duplicate emitters
+  if (state.weather) resetWeather(state.weather, state.weather.kind);
   updateHud();
   // Resume same BGM instance — do not rewind on restart or ending return
   ensureBgmPlaying();
@@ -635,25 +1288,9 @@ async function startFromButton(mode = 'normal') {
   startGame(mode);
 }
 
-function currentMemoryLabel() {
-  if (!state) return '';
-  let best = state.memories[0];
-  let bestD = Infinity;
-  const px = state.player.x + state.player.w / 2;
-  for (const m of state.memories) {
-    const d = Math.abs(m.cx - px);
-    if (d < bestD) {
-      bestD = d;
-      best = m;
-    }
-  }
-  return best.label;
-}
-
 function updateHud() {
   if (!state) return;
   hpLabel.innerHTML = heartsHtml(state.hearts);
-  zoneLabel.textContent = currentMemoryLabel();
 }
 
 /** Flat safe viewing strip in front of each memory — no exercise damage here. */
@@ -763,14 +1400,28 @@ function respawnAtCheckpoint() {
       ex.y = GROUND_Y - ex.h;
     }
   }
+  for (const b of state.bosses || []) {
+    if (b.season === sid) {
+      b.phase = 'patrol';
+      b.timer = 0;
+      b.frame = 0;
+      b.airY = 0;
+      b.contactLock = false;
+      b.x = b.patrolMin;
+      b.dir = 1;
+      b.y = GROUND_Y - b.h;
+    }
+  }
+  state.workout = null;
   state._exerciseLock = false;
+  p.hidden = false;
   hideOverlay();
   updateHud();
   pushMsg(`${cp.label} 체크포인트!`, p.x, p.y - 30);
 }
 
 function beginExercise(ex) {
-  if (ex.playing || ex.contactLock) return;
+  if (ex.playing || ex.contactLock || state._exerciseLock) return;
   ex.playing = true;
   ex.contactLock = true;
   ex.frame = 0;
@@ -778,15 +1429,26 @@ function beginExercise(ex) {
   ex.dir = 0; // pause patrol during interaction
   state._exerciseLock = true;
   const p = state.player;
+  p.hidden = true; // exclusive with encounter sheet (character+machine)
+  // Pin player hitbox to this machine's world position so camera stays glued.
+  p.x = ex.x + (ex.w - p.w) / 2;
+  p.y = GROUND_Y - p.h;
   p.vx = 0;
   p.vy = 0;
+  p.onGround = true;
+  p.onPlatform = null;
+  p.anim = 'idle';
+  p.frame = 0;
 }
 
 function finishExercise(ex) {
   ex.playing = false;
+  ex.frame = 0;
+  ex.frameT = 0;
   state._exerciseLock = false;
-  // Eject player to a safe side (behind the villain relative to facing)
+  // Eject player to a safe ground position (never leave mid-air ghost)
   const p = state.player;
+  p.hidden = false;
   const ejectLeft = p.x + p.w / 2 < ex.x + ex.w / 2;
   p.x = ejectLeft ? ex.patrolMin - p.w - 24 : ex.patrolMax + 24;
   p.y = GROUND_Y - p.h;
@@ -794,10 +1456,15 @@ function finishExercise(ex) {
   p.vy = 0;
   p.onGround = true;
   p.onPlatform = null;
-  // Resume patrol
+  p.anim = 'idle';
+  p.frame = 0;
+  p.h = PLAYER_H;
+  p.w = PLAYER_W;
+  // Resume patrol at current machine world x
   ex.dir = ejectLeft ? 1 : -1;
   ex.x = Math.max(ex.patrolMin, Math.min(ex.patrolMax, ex.x));
-  // One-contact damage; keep contactLock until player separates
+  ex.y = GROUND_Y - ex.h;
+  // One-contact damage only; 2s i-frames; contactLock until separate
   if (!state.ending.damageLocked) {
     state.hearts = Math.max(0, state.hearts - 1);
     state.invUntil = state.now + INVINCIBLE_MS;
@@ -809,6 +1476,211 @@ function finishExercise(ex) {
       return;
     }
   }
+}
+
+function bossHitbox(b) {
+  return {
+    x: b.x + b.hitPadX,
+    y: b.y + b.hitPadTop - (b.airY || 0),
+    w: b.w - b.hitPadX * 2,
+    h: b.h - b.hitPadTop - b.hitPadBot,
+  };
+}
+
+function beginBossWorkout(boss) {
+  if (state._exerciseLock || state.workout || boss.contactLock) return;
+  if (state.now < state.invUntil || state.ending.damageLocked) return;
+  const kind = Math.random() < 0.5 ? 'burpee' : 'pushup';
+  const p = state.player;
+  // Immediate damage + HUD
+  state.hearts = Math.max(0, state.hearts - 1);
+  updateHud();
+  pushMsg(kind === 'burpee' ? '버피!' : '푸시업!', p.x, p.y - 24);
+  pushMsg('-1 하트', p.x, p.y - 48);
+
+  state._exerciseLock = true;
+  state.workout = {
+    kind,
+    t: 0,
+    frame: 0,
+    frameT: 0,
+    bossId: boss.id,
+    baseFrame: kind === 'burpee' ? 0 : 4,
+  };
+  boss.phase = 'instruct';
+  boss.timer = 0;
+  boss.airY = 0;
+  boss.contactLock = true;
+  boss.frame = 6;
+  p.hidden = true;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.y = GROUND_Y - p.h;
+  // Stand near boss for the drill
+  const left = p.x + p.w / 2 < boss.x + boss.w / 2;
+  p.x = left ? boss.x - p.w - 18 : boss.x + boss.w + 18;
+  p.facing = left ? 1 : -1;
+
+  if (state.hearts <= 0) {
+    // Still show a beat of workout? Spec: checkpoint restart when 0.
+    // Finish immediately into respawn after locking damage feedback.
+    state.checkpointId = currentCheckpoint().id;
+    state.workout = null;
+    state._exerciseLock = false;
+    p.hidden = false;
+    boss.phase = 'patrol';
+    boss.contactLock = false;
+    respawnAtCheckpoint();
+  }
+}
+
+function finishBossWorkout() {
+  const w = state.workout;
+  const boss = (state.bosses || []).find((b) => b.id === (w && w.bossId)) || (state.bosses || [])[0];
+  state.workout = null;
+  state._exerciseLock = false;
+  const p = state.player;
+  p.hidden = false;
+  p.h = PLAYER_H;
+  p.w = PLAYER_W;
+  p.anim = 'idle';
+  p.frame = 0;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.onPlatform = null;
+  if (boss) {
+    const ejectLeft = p.x + p.w / 2 < boss.x + boss.w / 2;
+    p.x = ejectLeft ? boss.patrolMin - p.w - 28 : boss.patrolMax + 28;
+    p.y = GROUND_Y - p.h;
+    boss.phase = 'rest';
+    boss.timer = 0;
+    boss.frame = 5;
+    boss.airY = 0;
+    boss.y = GROUND_Y - boss.h;
+    boss.dir = ejectLeft ? 1 : -1;
+    boss.x = Math.max(boss.patrolMin, Math.min(boss.patrolMax, boss.x));
+  } else {
+    p.y = GROUND_Y - p.h;
+  }
+  state.invUntil = state.now + INVINCIBLE_MS;
+}
+
+function updateBosses(dt) {
+  if (!state.bosses) return;
+  const p = state.player;
+  const gScale = dt / 16.67;
+  for (const b of state.bosses) {
+    // Never enter ending / wedding approach
+    if (b.patrolMax > state.ending.weddingCx - W * 0.85) {
+      b.patrolMax = state.ending.weddingCx - W * 0.85;
+    }
+
+    if (b.contactLock && !state.workout) {
+      if (!aabb(playerHitbox(p), bossHitbox(b))) b.contactLock = false;
+    }
+
+    if (b.phase === 'instruct') {
+      b.frameT = (b.frameT || 0) + dt;
+      if (b.frameT > 280) {
+        b.frameT = 0;
+        b.frame = b.frame === 6 ? 7 : 6;
+      }
+      b.airY = 0;
+      b.y = GROUND_Y - b.h;
+      continue;
+    }
+
+    if (b.phase === 'telegraph') {
+      b.timer += dt;
+      b.frame = 3;
+      b.airY = 0;
+      b.y = GROUND_Y - b.h;
+      // ! drawn in drawBosses
+      if (b.timer >= BOSS_TELEGRAPH_MS) {
+        // Lock landing X now — no mid-air player chase
+        const toward = p.x + p.w / 2 >= b.x + b.w / 2 ? 1 : -1;
+        const leap = 140 + Math.random() * 100;
+        b.jumpFromX = b.x;
+        b.jumpLandX = Math.max(b.patrolMin, Math.min(b.patrolMax, b.x + toward * leap));
+        b.dir = b.jumpLandX >= b.jumpFromX ? 1 : -1;
+        b.jumpT = 0;
+        b.phase = 'jump';
+        b.timer = 0;
+        b.frame = 4;
+      }
+      continue;
+    }
+
+    if (b.phase === 'jump') {
+      b.jumpT += dt;
+      const t = Math.min(1, b.jumpT / BOSS_JUMP_MS);
+      b.x = b.jumpFromX + (b.jumpLandX - b.jumpFromX) * t;
+      b.airY = 4 * BOSS_JUMP_PEAK * t * (1 - t);
+      b.y = GROUND_Y - b.h - b.airY;
+      b.frame = 4;
+      if (t >= 1) {
+        b.x = b.jumpLandX;
+        b.airY = 0;
+        b.y = GROUND_Y - b.h;
+        b.phase = 'rest';
+        b.timer = 0;
+        b.frame = 5;
+      }
+      continue;
+    }
+
+    if (b.phase === 'rest') {
+      b.timer += dt;
+      b.frame = 5;
+      b.airY = 0;
+      b.y = GROUND_Y - b.h;
+      if (b.timer >= BOSS_REST_MS) {
+        b.phase = 'patrol';
+        b.timer = 0;
+        b.frame = 1;
+      }
+      continue;
+    }
+
+    // patrol
+    b.x += b.dir * b.speed * gScale;
+    if (b.x <= b.patrolMin) {
+      b.x = b.patrolMin;
+      b.dir = 1;
+    } else if (b.x >= b.patrolMax) {
+      b.x = b.patrolMax;
+      b.dir = -1;
+    }
+    b.airY = 0;
+    b.y = GROUND_Y - b.h;
+    b.frameT = (b.frameT || 0) + dt;
+    if (b.frameT > 120) {
+      b.frameT = 0;
+      b.frame = b.frame === 1 ? 2 : 1;
+    }
+    // Periodically wind up a jump
+    b.timer += dt;
+    if (b.timer > 1600 + Math.random() * 900) {
+      b.phase = 'telegraph';
+      b.timer = 0;
+      b.frame = 3;
+    }
+  }
+}
+
+function updateWorkout(dt) {
+  const w = state.workout;
+  if (!w) return;
+  w.t += dt;
+  w.frameT += dt;
+  const frameDur = WORKOUT_MS / 4;
+  if (w.frameT >= frameDur) {
+    w.frameT = 0;
+    w.frame = (w.frame + 1) % 4;
+  }
+  if (w.t >= WORKOUT_MS) finishBossWorkout();
 }
 
 function tryJump(p) {
@@ -919,15 +1791,47 @@ function updateEnding(dt) {
     if (e.hugFrame < 3 && e.hugTimer >= HUG_FRAME_MS) {
       e.hugTimer = 0;
       e.hugFrame += 1;
-    } else if (e.hugFrame >= 3 && e.hugTimer >= HUG_FRAME_MS + 400) {
-      e.phase = 'done';
-      state.won = true;
-      state.running = false;
-      showOverlay('볼떵이 ♥ 볼빵이', '만났어요! 꽃다발과 포옹의 엔딩입니다.', {
-        start: false,
-        near: true,
-        restart: true,
-      });
+      if (e.hugFrame >= 3) {
+        // Final pose just landed — start letter delay clock
+        e.hugTimer = 0;
+        e.letterReady = false;
+        e.letterT = 0;
+        e.letterShown = false;
+      }
+    } else if (e.hugFrame >= 3) {
+      // Hold final hug forever; after delay, slide letter in
+      if (!e.letterShown && e.hugTimer >= LETTER_DELAY_MS) {
+        e.letterShown = true;
+        e.letterT = 0;
+        e.letterLayout = pickLetterLayout();
+      }
+      if (e.letterShown && e.letterT < 1) {
+        e.letterT = Math.min(1, e.letterT + dt / LETTER_FADE_MS);
+      }
+      if (e.letterShown && e.letterT >= 1 && !e.letterPrompted) {
+        e.letterPrompted = true;
+        e.phase = 'done';
+        state.won = true;
+        state.running = false;
+        showOverlay('볼떵이 ♥ 볼빵이', '편지도 전했어요. 처음부터 다시 볼 수 있어요.', {
+          start: false,
+          near: true,
+          restart: true,
+          ending: true,
+        });
+      }
+      syncEndingLetterDom();
+    }
+    return;
+  }
+
+  if (e.phase === 'done') {
+    // Keep hug frame 3 + letter until restart
+    e.hugFrame = 3;
+    e.hideIndividuals = true;
+    if (e.letterShown) {
+      e.letterT = 1;
+      syncEndingLetterDom();
     }
   }
 }
@@ -974,7 +1878,10 @@ function resolvePlatforms(p, prevBottom) {
 }
 
 function update(dt) {
-  if (!state || !state.running) return;
+  if (!state) return;
+  // Weather keeps animating through the frozen hug ending
+  updateWeather(dt);
+  if (!state.running) return;
   state.now = performance.now();
   const p = state.player;
   const endingActive = state.ending.phase !== 'idle';
@@ -989,6 +1896,12 @@ function update(dt) {
 
   for (const ex of state.exercises) {
     if (!ex.playing) continue;
+    // Keep player + encounter on the same world machine x while animating
+    p.x = ex.x + (ex.w - p.w) / 2;
+    p.y = GROUND_Y - p.h;
+    p.vx = 0;
+    p.vy = 0;
+    p.onGround = true;
     ex.frameT += dt;
     if (ex.frameT >= 140) {
       ex.frameT = 0;
@@ -997,8 +1910,14 @@ function update(dt) {
     }
   }
 
+  if (state.workout) updateWorkout(dt);
+
   if (!endingActive && !exerciseLock) {
     updatePatrol(dt);
+    updateBosses(dt);
+  } else if (!endingActive && state.workout) {
+    // Boss stays in instruct pose while player workouts
+    updateBosses(dt);
   }
 
   if (endingActive) {
@@ -1035,9 +1954,11 @@ function update(dt) {
     if (p.vy >= 0) p.jumping = false;
 
     const prevBottom = p.y + p.h;
-    p.vy += GRAVITY;
-    p.x += p.vx;
-    p.y += p.vy;
+    const gScale = dt / 16.67;
+    p.vy += GRAVITY * gScale;
+    // Keep horizontal step stable with dt so mobile 30/60fps both work
+    p.x += p.vx * gScale;
+    p.y += p.vy * gScale;
     p.x = Math.max(40, Math.min(state.worldEnd - p.w - 20, p.x));
 
     p.onGround = false;
@@ -1095,11 +2016,22 @@ function update(dt) {
       !state.ending.damageLocked &&
       !inMemorySafeZone(p.x + p.w / 2)
     ) {
+      let hit = false;
       for (const ex of state.exercises) {
         if (ex.playing || ex.contactLock) continue;
         if (aabb(ph, villainHitbox(ex))) {
           beginExercise(ex);
+          hit = true;
           break;
+        }
+      }
+      if (!hit) {
+        for (const b of state.bosses || []) {
+          if (b.contactLock || b.phase === 'instruct') continue;
+          if (aabb(ph, bossHitbox(b))) {
+            beginBossWorkout(b);
+            break;
+          }
         }
       }
     }
@@ -1109,7 +2041,10 @@ function update(dt) {
 
   if (state.cameraLock || endingActive) {
     const e = state.ending;
-    const target = Math.max(0, Math.min(state.worldEnd - W, e.weddingCx - W * 0.42));
+    // With side letter, park hug pair in left~center so they don't sit under the note
+    const frac = e.letterShown && e.letterLayout === 'side' ? 0.3 : 0.42;
+    const focusX = e.hideIndividuals ? e.hugAnchorX : e.weddingCx;
+    const target = Math.max(0, Math.min(state.worldEnd - W, focusX - W * frac));
     state.cameraX += (target - state.cameraX) * 0.1;
   } else {
     const targetCam = Math.max(0, Math.min(state.worldEnd - W, p.x - W * 0.32));
@@ -1236,6 +2171,23 @@ function drawMemories() {
   }
 }
 
+/** Couple photo stands — behind player, feet on ground, no hitboxes. */
+function drawCoupleBoards() {
+  if (!state.coupleBoards) return;
+  const cam = state.cameraX;
+  for (const board of state.coupleBoards) {
+    const img = images[board.key];
+    const b = BOUNDS[board.key];
+    if (!img || !b) continue;
+    const w = board.w;
+    const h = board.h;
+    const sx = board.cx - w / 2 - cam;
+    const sy = GROUND_Y - h;
+    if (sx + w < -40 || sx > W + 40) continue;
+    ctx.drawImage(img, b.ox, b.oy, b.ow, b.oh, Math.round(sx), Math.round(sy), w, h);
+  }
+}
+
 function drawPlatforms() {
   const cam = state.cameraX;
   for (const pl of state.platforms) {
@@ -1288,21 +2240,36 @@ function drawFoods() {
   }
 }
 
+function activeExercise() {
+  if (!state) return null;
+  return state.exercises.find((ex) => ex.playing) || null;
+}
+
 function drawExercises() {
   const cam = state.cameraX;
   for (const ex of state.exercises) {
     const sx = ex.x - cam;
     if (sx + ex.w < -40 || sx > W + 40) continue;
     if (ex.playing) {
-      drawSheetFrame(
-        images[ex.sheet],
-        ex.cols,
-        ex.rows,
+      // Encounter PNG already includes 볼떵이 + machine — draw only that, hide idle machine.
+      const meta = EXERCISE_META[ex.sheet];
+      const img = images[ex.sheet];
+      if (!img || !meta) continue;
+      const scale = ex.h / meta.bodyH;
+      const feetX = ex.x + ex.w / 2;
+      drawSheetAtFeet(
+        img,
+        EXERCISE_CELL.cols,
+        EXERCISE_CELL.rows,
         Math.min(ex.frame, ex.frames - 1),
-        sx - 10,
-        ex.y - 10,
-        ex.w + 20,
-        ex.h + 10,
+        meta,
+        scale,
+        feetX,
+        GROUND_Y,
+        cam,
+        false,
+        EXERCISE_CELL.fw,
+        EXERCISE_CELL.fh,
       );
     } else {
       const key = ex.idle;
@@ -1320,10 +2287,72 @@ function drawExercises() {
   }
 }
 
+function drawBosses() {
+  if (!state.bosses) return;
+  const cam = state.cameraX;
+  for (const b of state.bosses) {
+    const sx = b.x - cam;
+    if (sx + b.w < -60 || sx > W + 60) continue;
+    const meta = BOSS_FRAMES[b.frame] || BOSS_FRAMES[0];
+    const feetY = GROUND_Y - (b.airY || 0);
+    drawSheetAtFeet(
+      images.bossSheet,
+      BOSS_CELL.cols,
+      BOSS_CELL.rows,
+      b.frame,
+      meta,
+      b.scale,
+      b.x + b.w / 2,
+      feetY,
+      cam,
+      b.dir < 0,
+      BOSS_CELL.fw,
+      BOSS_CELL.fh,
+    );
+    if (b.phase === 'telegraph') {
+      ctx.fillStyle = 'rgba(232, 93, 76, 0.95)';
+      ctx.font = '700 28px Gaegu, sans-serif';
+      ctx.fillText('!', sx + b.w / 2 - 6, b.y - 8 - (b.airY || 0));
+    }
+  }
+}
+
+/** Forced burpee/pushup — hides walk sprite; feet grounded except burpee jump frame lift. */
+function drawWorkoutPlayer() {
+  const w = state.workout;
+  if (!w) return;
+  const p = state.player;
+  const cam = state.cameraX;
+  const idx = w.baseFrame + (w.frame % 4);
+  const meta = WORKOUT_FRAMES[idx] || WORKOUT_FRAMES[0];
+  // Keep chubbiness ≈ walk body: scale from opaque body height of stand frame
+  const scale = CHARACTER_BODY_H / WORKOUT_FRAMES[0].bodyH;
+  drawSheetAtFeet(
+    images.workoutSheet,
+    WORKOUT_CELL.cols,
+    WORKOUT_CELL.rows,
+    idx,
+    meta,
+    scale,
+    p.x + p.w / 2,
+    GROUND_Y,
+    cam,
+    p.facing < 0,
+    WORKOUT_CELL.fw,
+    WORKOUT_CELL.fh,
+  );
+}
+
 /** Draw 볼떵이 (player) — always PLAYER_SCALE for every anim/state. */
 function drawPlayer() {
   if (state.ending.hideIndividuals) return;
   const p = state.player;
+  if (state.workout) {
+    drawWorkoutPlayer();
+    return;
+  }
+  // Exclusive with exercise encounter art (which already contains 볼떵이 + machine).
+  if (p.hidden || state._exerciseLock || activeExercise()) return;
   const cam = state.cameraX;
   const inv = state.now < state.invUntil && !state.ending.damageLocked;
   if (inv && Math.floor(state.now / 80) % 2 === 0) return;
@@ -1348,6 +2377,8 @@ function drawPlayer() {
     feetY,
     cam,
     p.facing < 0,
+    PLAYER_CELL.fw,
+    PLAYER_CELL.fh,
   );
 }
 
@@ -1372,6 +2403,8 @@ function drawEndingChars() {
       e.bolFeetY || GROUND_Y,
       cam,
       false,
+      HUG_CELL.fw,
+      HUG_CELL.fh,
     );
     return;
   }
@@ -1415,18 +2448,26 @@ function render() {
     ctx.fillRect(0, 0, W, H);
     return;
   }
-  // Layer: season bg → ground → memories → platforms → props → characters
+  // Layer: season bg → ground → weather → memories/boards → props → characters → UI
   drawSeasonBackground();
   drawGround();
+  drawWeather();
   drawMemories();
+  drawCoupleBoards();
   drawPlatforms();
   drawFoods();
   drawExercises();
+  drawBosses();
   drawEndingChars();
   drawPlayer();
   drawMsgs();
 
-  if (state.ending.damageLocked && state.ending.phase !== 'done' && state.ending.phase !== 'idle') {
+  if (
+    state.ending.damageLocked &&
+    state.ending.phase !== 'done' &&
+    state.ending.phase !== 'idle' &&
+    !state.ending.letterShown
+  ) {
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(W / 2 - 120, 48, 240, 32);
     ctx.fillStyle = '#fff';
@@ -1442,9 +2483,20 @@ function loop(now) {
   const dt = Math.min(40, now - last);
   last = now;
   update(dt);
+  // Keep letter DOM alive after running freezes on the final pose
+  if (state?.ending?.letterShown && (!state.running || state.ending.phase === 'done')) {
+    state.ending.letterT = 1;
+    syncEndingLetterDom();
+  }
   render();
   requestAnimationFrame(loop);
 }
+
+window.addEventListener('resize', () => {
+  if (!state?.ending?.letterShown) return;
+  state.ending.letterLayout = pickLetterLayout();
+  syncEndingLetterDom();
+});
 
 function bindInput() {
   window.addEventListener('keydown', (e) => {
@@ -1498,14 +2550,25 @@ function syncAudioUi() {
   const bgmVol = document.getElementById('bgmVol');
   const sfxVol = document.getElementById('sfxVol');
   const bgmHint = document.getElementById('bgmHint');
+  const btnEnable = document.getElementById('btnEnableBgm');
   if (bgmToggle) bgmToggle.checked = prefs.bgmOn;
   if (sfxToggle) sfxToggle.checked = prefs.sfxOn;
   if (bgmVol) bgmVol.value = String(Math.round(prefs.bgmVol * 100));
   if (sfxVol) sfxVol.value = String(Math.round(prefs.sfxVol * 100));
   if (bgmHint) {
-    bgmHint.textContent = prefs.bgmMissing
-      ? `BGM 대기: ${audioNeededBgmLabel()}`
-      : 'BGM: 어바웃 타임 OST';
+    if (prefs.bgmStatus === 'ok' && !prefs.bgmMissing) {
+      bgmHint.textContent = prefs.bgmOn ? `BGM 재생 중 · ${audioNeededBgmLabel()}` : `BGM 음소거 · ${audioNeededBgmLabel()}`;
+    } else if (prefs.bgmStatus === 'play-blocked') {
+      bgmHint.textContent = 'BGM: 재생이 차단됨 — 「음악 켜기」를 누르세요';
+    } else if (prefs.bgmStatus === 'missing' || prefs.bgmStatus === 'not-audio' || prefs.bgmStatus === 'load-error') {
+      bgmHint.textContent = 'BGM: 파일을 불러오지 못했습니다';
+    } else {
+      bgmHint.textContent = `BGM · ${audioNeededBgmLabel()}`;
+    }
+  }
+  if (btnEnable) {
+    // Keep mid-run so a blocked autoplay can still be unlocked by gesture
+    btnEnable.classList.toggle('hidden', false);
   }
 }
 
@@ -1514,10 +2577,13 @@ function bindAudioUi() {
   const sfxToggle = document.getElementById('sfxToggle');
   const bgmVol = document.getElementById('bgmVol');
   const sfxVol = document.getElementById('sfxVol');
+  const btnEnable = document.getElementById('btnEnableBgm');
   if (bgmToggle) {
-    bgmToggle.addEventListener('change', () => {
+    bgmToggle.addEventListener('change', async () => {
       setBgmOn(bgmToggle.checked);
-      ensureBgmPlaying();
+      if (bgmToggle.checked) await unlockAudio();
+      else ensureBgmPlaying();
+      syncAudioUi();
     });
   }
   if (sfxToggle) {
@@ -1529,7 +2595,20 @@ function bindAudioUi() {
   if (sfxVol) {
     sfxVol.addEventListener('input', () => setSfxVolume(Number(sfxVol.value) / 100));
   }
+  if (btnEnable) {
+    btnEnable.addEventListener('click', async () => {
+      await enableBgmFromGesture();
+      syncAudioUi();
+    });
+  }
   syncAudioUi();
+}
+
+function paintBuildStamp() {
+  const el = document.getElementById('buildStamp');
+  if (el) {
+    el.textContent = `build ${BUILD_VERSION}\n${BUILD_EDITED_AT}`;
+  }
 }
 
 async function boot() {
@@ -1543,6 +2622,7 @@ async function boot() {
     });
     throw err;
   }
+  paintBuildStamp();
   bindInput();
   bindAudioUi();
   // Start button unlocks audio (browser policy) and begins the run
@@ -1558,6 +2638,60 @@ async function boot() {
     start: startFromButton,
     getState: () => state,
     missingAssets: MISSING_ASSETS,
+    build: { version: BUILD_VERSION, editedAt: BUILD_EDITED_AT },
+    audio: () => getAudioPrefs(),
+    forceExercise: (id) => {
+      const ex = state?.exercises?.find((e) => e.id === id) || state?.exercises?.[0];
+      if (ex) beginExercise(ex);
+      return !!ex;
+    },
+    forceBoss: () => {
+      const b = state?.bosses?.[0];
+      if (!b) return false;
+      state.cameraX = Math.max(0, b.x - 400);
+      state.player.x = b.x - 40;
+      state.player.y = GROUND_Y - state.player.h;
+      state.invUntil = 0;
+      beginBossWorkout(b);
+      return true;
+    },
+    forceBossJump: () => {
+      const b = state?.bosses?.[0];
+      if (!b || state.workout) return false;
+      b.phase = 'telegraph';
+      b.timer = 0;
+      b.frame = 3;
+      state.cameraX = Math.max(0, b.x - 400);
+      return true;
+    },
+    /** Jump to final hug pose and arm letter delay (playtest). */
+    forceEndingLetter: () => {
+      if (!state) return false;
+      const e = state.ending;
+      const p = state.player;
+      e.phase = 'hug';
+      e.inputLocked = true;
+      e.damageLocked = true;
+      e.hideIndividuals = true;
+      e.hugFrame = 3;
+      e.hugTimer = 0;
+      e.letterReady = false;
+      e.letterShown = false;
+      e.letterT = 0;
+      e.letterPrompted = false;
+      state.cameraLock = true;
+      state.running = true;
+      state.won = false;
+      hideOverlay();
+      p.x = e.bolX - Math.round(CHARACTER_BODY_H * 0.95) + CLOSE_STEP;
+      p.y = GROUND_Y - p.h;
+      p.onGround = true;
+      e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
+      e.bolFeetY = GROUND_Y;
+      state.cameraX = Math.max(0, e.hugAnchorX - W * 0.42);
+      resetEndingLetterDom();
+      return true;
+    },
     scales: {
       characterBodyH: CHARACTER_BODY_H,
       playerScale: PLAYER_SCALE,
@@ -1566,6 +2700,8 @@ async function boot() {
       hugScale: HUG_SCALE,
       playerH: PLAYER_H,
       playerW: PLAYER_W,
+      jumpHangS: JUMP_HANG_S,
+      maxJumpH: MAX_JUMP_H,
     },
     roles: {
       player: '볼떵이',
