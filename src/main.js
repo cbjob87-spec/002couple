@@ -31,8 +31,8 @@ import {
 } from './audio.js';
 
 /** Live build stamp — must appear on published site after refresh. */
-export const BUILD_VERSION = '20261107-2055-boards';
-export const BUILD_EDITED_AT = '2026-11-07T20:55+09:00';
+export const BUILD_VERSION = '20261107-2105-boards';
+export const BUILD_EDITED_AT = '2026-11-07T21:05+09:00';
 
 const W = 960;
 const H = 540;
@@ -246,16 +246,16 @@ const BOUNDS = {
   dongbang: { ox: 205, oy: 74, ow: 707, oh: 1286 },
   gaenari: { ox: 55, oy: 28, ow: 1420, oh: 964 },
   wedding: { ox: 102, oy: 23, ow: 818, oh: 1492 },
-  coupleBoard01: { ox: 123, oy: 20, ow: 1008, oh: 1215 },
-  coupleBoard02: { ox: 44, oy: 0, ow: 1181, oh: 1232 },
-  coupleBoard03: { ox: 90, oy: 19, ow: 1100, oh: 1186 },
-  coupleBoard04: { ox: 83, oy: 8, ow: 1089, oh: 1234 },
-  coupleBoard05: { ox: 179, oy: 4, ow: 1111, oh: 1056 },
-  coupleBoard06: { ox: 263, oy: 10, ow: 1147, oh: 921 },
-  coupleBoard07: { ox: 53, oy: 18, ow: 980, oh: 1412 },
-  coupleBoard08: { ox: 62, oy: 16, ow: 1130, oh: 1223 },
-  coupleBoard09: { ox: 40, oy: 23, ow: 1006, oh: 1399 },
-  coupleBoard10: { ox: 103, oy: 14, ow: 1048, oh: 1221 },
+  coupleBoard01: { ox: 0, oy: 0, ow: 520, oh: 625 },
+  coupleBoard02: { ox: 0, oy: 0, ow: 600, oh: 624 },
+  coupleBoard03: { ox: 0, oy: 0, ow: 556, oh: 598 },
+  coupleBoard04: { ox: 0, oy: 0, ow: 560, oh: 635 },
+  coupleBoard05: { ox: 1, oy: 0, ow: 488, oh: 463 },
+  coupleBoard06: { ox: 0, oy: 0, ow: 444, oh: 357 },
+  coupleBoard07: { ox: 0, oy: 2, ow: 438, oh: 627 },
+  coupleBoard08: { ox: 0, oy: 0, ow: 582, oh: 631 },
+  coupleBoard09: { ox: 0, oy: 0, ow: 450, oh: 624 },
+  coupleBoard10: { ox: 0, oy: 0, ow: 540, oh: 628 },
   bolBehind: { ox: 165, oy: 129, ow: 928, oh: 1004 },
   bolFront: { ox: 46, oy: 59, ow: 1187, oh: 1095 },
   chicken: { ox: 298, oy: 131, ow: 852, oh: 782 },
