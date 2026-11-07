@@ -34,16 +34,24 @@ const H = 540;
 /** Align with season BG road (not mid-air above the painted street). */
 const GROUND_Y = Math.round(H * 0.865);
 const BILLBOARD_H = Math.round(H * 0.6); // 55–65% of H
-const GRAVITY = 0.55;
-const MOVE_SPEED = 3.6;
-const JUMP_V = -11.2;
+const MOVE_SPEED = 3.8;
+const GRAVITY = 0.42;
+const JUMP_V_MAX = -16.2; // clears tallest villain + 0.5× body (verified)
+const JUMP_V_MIN = -9.2; // tap jump
+const JUMP_CUT_MULT = 0.42; // release early → short hop
+const COYOTE_MS = 100;
+const JUMP_BUFFER_MS = 120;
+const AIR_CONTROL = 1.0; // full L/R in air
+const PATROL_SPEED_FRAC = 0.38; // 30–45% of player speed
+const INVINCIBLE_MS = 2000; // after exercise eject
 const MAX_HEARTS = 3;
-const INVINCIBLE_MS = 1400;
 const FLOWER_HOLD_MS = 900;
 const HUG_FRAME_MS = 700;
 const ENDING_TRIGGER_DIST = 160;
 const CLOSE_STEP = 40;
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
+/** Theoretical max jump height (px) from JUMP_V_MAX + GRAVITY. */
+const MAX_JUMP_H = (JUMP_V_MAX * JUMP_V_MAX) / (2 * GRAVITY);
 
 /**
  * Shared standing body height (head→feet).
@@ -237,6 +245,16 @@ const btnRestart = document.getElementById('btnRestart');
 const keys = new Set();
 const touch = { left: false, right: false, jump: false };
 let jumpQueued = false;
+let jumpHeld = false;
+let jumpWasHeld = false;
+
+/** Season bands by memory index (19 memories: 0..18). */
+const SEASON_BANDS = [
+  { id: 'winter', i0: 0, i1: 3, label: '겨울' },
+  { id: 'spring', i0: 4, i1: 8, label: '봄' },
+  { id: 'summer', i0: 9, i1: 13, label: '여름' },
+  { id: 'autumn', i0: 14, i1: 18, label: '가을' },
+];
 
 function loadImage(name) {
   return new Promise((resolve, reject) => {
@@ -393,59 +411,143 @@ function createState(mode = 'normal') {
   const startMem = memories[0];
   const playerStartX = near ? wedding.cx - W * 0.55 : startMem.cx - W * 0.35;
 
-  // Hazards ONLY in the middle of gaps between memories (never in viewing strip)
-  function gapHazardX(afterIndex) {
-    // place at 50% of gap — safely away from both boards' SAFE≈0.42W zones when SPACING=1.25W
-    return betweenSpot(memories, afterIndex, 0.5) - 40;
+  function gapCenter(afterIndex) {
+    return betweenSpot(memories, afterIndex, 0.5);
   }
 
-  // Encounter sheets include 볼떵이 — box sized so he reads at PLAYER_SCALE (not a second body size)
-  const exH = Math.round(PLAYER_H * 1.2);
-  const exW = Math.round(exH * 0.9);
-  const exercises = [
-    {
-      id: 'tm',
-      type: 'treadmill',
-      x: gapHazardX(3), // between 레미제라블 → 반창꼬
-      y: GROUND_Y - exH,
-      w: exW,
-      h: exH,
+  // Tallest general villain body (solid) — jump must clear this + 0.5× player body
+  const VILLAIN_H = Math.round(PLAYER_H * 1.15);
+  const VILLAIN_W = Math.round(VILLAIN_H * 0.85);
+  const patrolSpeed = MOVE_SPEED * PATROL_SPEED_FRAC;
+
+  function makeVillain(cfg) {
+    const h = cfg.h || VILLAIN_H;
+    const w = cfg.w || VILLAIN_W;
+    return {
+      id: cfg.id,
+      type: cfg.type,
+      x: cfg.x0,
+      y: GROUND_Y - h,
+      w,
+      h,
+      // Tight body hitbox (ignore sprite pad)
+      hitPadX: Math.round(w * 0.22),
+      hitPadTop: Math.round(h * 0.18),
+      hitPadBot: Math.round(h * 0.08),
+      patrolMin: cfg.x0,
+      patrolMax: cfg.x1,
+      dir: 1,
+      speed: cfg.speed || patrolSpeed,
+      season: cfg.season,
       used: false,
       playing: false,
       frame: 0,
       frameT: 0,
+      cols: cfg.cols,
+      rows: cfg.rows,
+      frames: cfg.frames,
+      sheet: cfg.sheet,
+      idle: cfg.idle,
+      contactLock: false,
+    };
+  }
+
+  // Winter: 1 slow villain | Spring: 1 | Summer: 2 staggered | Autumn: none near ending
+  const exercises = [
+    makeVillain({
+      id: 'tm-w',
+      type: 'treadmill',
+      season: 'winter',
+      x0: gapCenter(2) - 70,
+      x1: gapCenter(2) + 70,
+      speed: patrolSpeed * 0.85,
       cols: 4,
       rows: 2,
       frames: 8,
       sheet: 'treadmillEncounter',
       idle: 'treadmillVillain',
-    },
-    {
-      id: 'bk',
+    }),
+    makeVillain({
+      id: 'bk-s',
       type: 'bike',
-      x: gapHazardX(9), // between 패러글라이딩 → 미스터 션샤인
-      y: GROUND_Y - exH,
-      w: exW,
-      h: exH,
-      used: false,
-      playing: false,
-      frame: 0,
-      frameT: 0,
+      season: 'spring',
+      x0: gapCenter(5) - 90,
+      x1: gapCenter(5) + 90,
+      speed: patrolSpeed,
       cols: 4,
       rows: 2,
       frames: 7,
       sheet: 'bikeEncounter',
       idle: 'bikeVillain',
-    },
+    }),
+    makeVillain({
+      id: 'tm-su1',
+      type: 'treadmill',
+      season: 'summer',
+      x0: gapCenter(10) - 100,
+      x1: gapCenter(10) + 60,
+      speed: patrolSpeed * 1.05,
+      cols: 4,
+      rows: 2,
+      frames: 8,
+      sheet: 'treadmillEncounter',
+      idle: 'treadmillVillain',
+    }),
+    makeVillain({
+      id: 'bk-su2',
+      type: 'bike',
+      season: 'summer',
+      x0: gapCenter(12) - 50,
+      x1: gapCenter(12) + 110,
+      speed: patrolSpeed * 0.95,
+      cols: 4,
+      rows: 2,
+      frames: 7,
+      sheet: 'bikeEncounter',
+      idle: 'bikeVillain',
+    }),
+  ];
+
+  // Platforms: one-way tops. Heights within jump envelope; widths ≥ 2× player.
+  const platW = Math.max(PLAYER_W * 2.2, 160);
+  const h1 = Math.round(MAX_JUMP_H * 0.5);
+  const h2 = Math.round(MAX_JUMP_H * 0.5 + MAX_JUMP_H * 0.35);
+  const h3 = Math.round(MAX_JUMP_H * 0.48);
+  const platforms = [
+    // Winter practice — low ledge
+    { id: 'w1', x: gapCenter(1) - platW / 2, y: GROUND_Y - h1, w: platW, h: 16, kind: 'stone', season: 'winter' },
+    // Spring chain (2–3)
+    { id: 'sp1', x: gapCenter(4) - platW / 2 - 40, y: GROUND_Y - h1, w: platW, h: 16, kind: 'brick', season: 'spring' },
+    { id: 'sp2', x: gapCenter(5) - platW / 2 + 20, y: GROUND_Y - h2, w: platW, h: 16, kind: 'brick', season: 'spring' },
+    { id: 'sp3', x: gapCenter(6) - platW / 2 - 20, y: GROUND_Y - h1, w: platW * 1.1, h: 16, kind: 'wood', season: 'spring' },
+    // Summer varied heights (bypass ground patrols)
+    { id: 'su1', x: gapCenter(9) - platW / 2, y: GROUND_Y - h3, w: platW, h: 16, kind: 'stone', season: 'summer' },
+    { id: 'su2', x: gapCenter(10) - platW / 2 + 50, y: GROUND_Y - h2, w: platW, h: 16, kind: 'wood', season: 'summer' },
+    { id: 'su3', x: gapCenter(11) - platW / 2 - 30, y: GROUND_Y - h1, w: platW * 1.15, h: 16, kind: 'brick', season: 'summer' },
+    { id: 'su4', x: gapCenter(12) - platW / 2 + 10, y: GROUND_Y - h2, w: platW, h: 16, kind: 'stone', season: 'summer' },
+    // Autumn — gentle low step only, clear of wedding
+    { id: 'a1', x: gapCenter(15) - platW / 2, y: GROUND_Y - Math.round(MAX_JUMP_H * 0.35), w: platW, h: 16, kind: 'wood', season: 'autumn' },
   ];
 
   const foods = [
-    { id: 'c1', kind: 'chicken', x: gapHazardX(0) - 10, y: GROUND_Y - 64, w: 56, h: 56, taken: false },
-    { id: 'p1', kind: 'pizza', x: gapHazardX(5) - 10, y: GROUND_Y - 64, w: 56, h: 56, taken: false },
-    { id: 'b1', kind: 'burger', x: gapHazardX(7) - 10, y: GROUND_Y - 64, w: 56, h: 56, taken: false },
-    { id: 'c2', kind: 'chicken', x: gapHazardX(12) - 10, y: GROUND_Y - 64, w: 56, h: 56, taken: false },
-    { id: 'p2', kind: 'pizza', x: gapHazardX(15) - 10, y: GROUND_Y - 64, w: 56, h: 56, taken: false },
+    { id: 'c1', kind: 'chicken', x: gapCenter(0) - 20, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'winter' },
+    { id: 'p-w', kind: 'pizza', x: platforms[0].x + platforms[0].w / 2 - 24, y: platforms[0].y - 52, w: 48, h: 48, taken: false, season: 'winter' },
+    { id: 'p-sp', kind: 'burger', x: platforms[2].x + platforms[2].w / 2 - 24, y: platforms[2].y - 52, w: 48, h: 48, taken: false, season: 'spring' },
+    { id: 'c-sp', kind: 'chicken', x: gapCenter(7) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'spring' },
+    { id: 'p-su', kind: 'pizza', x: platforms[5].x + platforms[5].w / 2 - 24, y: platforms[5].y - 52, w: 48, h: 48, taken: false, season: 'summer' },
+    { id: 'b-su', kind: 'burger', x: platforms[7].x + platforms[7].w / 2 - 24, y: platforms[7].y - 52, w: 48, h: 48, taken: false, season: 'summer' },
+    { id: 'c-a', kind: 'chicken', x: gapCenter(16) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'autumn' },
   ];
+
+  const checkpoints = SEASON_BANDS.map((b) => {
+    const m = memories[b.i0];
+    return {
+      id: b.id,
+      label: b.label,
+      x: m.cx - W * 0.35,
+      memoryIndex: b.i0,
+    };
+  });
 
   const worldEnd = wedding.cx + W * 0.7;
 
@@ -460,6 +562,11 @@ function createState(mode = 'normal') {
     cameraLock: false,
     memories,
     worldEnd,
+    platforms,
+    checkpoints,
+    checkpointId: 'winter',
+    villainH: VILLAIN_H,
+    maxJumpH: MAX_JUMP_H,
     player: {
       x: playerStartX,
       y: GROUND_Y - PLAYER_H,
@@ -472,14 +579,16 @@ function createState(mode = 'normal') {
       anim: 'idle',
       frame: 0,
       frameT: 0,
+      coyote: 0,
+      jumpBuffer: 0,
+      jumping: false,
+      onPlatform: null,
     },
     foods,
     exercises,
     ending: {
-      // Sequence: approach → flower (볼빵이 shows) → step closer → hug 4-cut
-      // 볼빵이 = NPC at bolX (no input). 볼떵이 = same player + PLAYER_SCALE.
       phase: 'idle',
-      bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85), // 볼빵이 feet X
+      bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85),
       bolFeetY: GROUND_Y,
       bolScale: BOLPPANGI_SCALE,
       playerScale: PLAYER_SCALE,
@@ -562,9 +671,8 @@ function wantLeft() {
 function wantRight() {
   return keys.has('ArrowRight') || keys.has('d') || keys.has('D') || touch.right;
 }
-function wantJump() {
+function isJumpHeld() {
   return (
-    jumpQueued ||
     keys.has(' ') ||
     keys.has('Space') ||
     keys.has('z') ||
@@ -583,32 +691,139 @@ function pushMsg(text, x, y) {
   state.floatMsgs.push({ text, x, y, life: 900 });
 }
 
+function playerHitbox(p) {
+  // Solid body — trim transparent padding feel
+  return {
+    x: p.x + Math.round(p.w * 0.18),
+    y: p.y + Math.round(p.h * 0.12),
+    w: Math.round(p.w * 0.64),
+    h: Math.round(p.h * 0.82),
+  };
+}
+
+function villainHitbox(ex) {
+  return {
+    x: ex.x + ex.hitPadX,
+    y: ex.y + ex.hitPadTop,
+    w: ex.w - ex.hitPadX * 2,
+    h: ex.h - ex.hitPadTop - ex.hitPadBot,
+  };
+}
+
+function currentCheckpoint() {
+  if (!state) return SEASON_BANDS[0];
+  const px = state.player.x + state.player.w / 2;
+  let best = state.checkpoints[0];
+  for (const cp of state.checkpoints) {
+    if (px >= cp.x - 20) best = cp;
+  }
+  return best;
+}
+
+function seasonIdForX(x) {
+  const memories = state.memories;
+  let idx = 0;
+  for (let i = 0; i < memories.length; i++) {
+    if (x + PLAYER_W / 2 >= memories[i].cx - SPACING * 0.5) idx = i;
+  }
+  for (const b of SEASON_BANDS) {
+    if (idx >= b.i0 && idx <= b.i1) return b.id;
+  }
+  return 'autumn';
+}
+
+function respawnAtCheckpoint() {
+  const cp = state.checkpoints.find((c) => c.id === state.checkpointId) || state.checkpoints[0];
+  const p = state.player;
+  p.x = cp.x;
+  p.y = GROUND_Y - p.h;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.onPlatform = null;
+  p.jumping = false;
+  state.hearts = MAX_HEARTS;
+  state.invUntil = state.now + 1200;
+  state.dead = false;
+  state.running = true;
+  state.cameraX = Math.max(0, p.x - W * 0.28);
+  // Reset foods/villains for this season and later? Spec: reset for that segment
+  const sid = cp.id;
+  for (const f of state.foods) {
+    if (f.season === sid) f.taken = false;
+  }
+  for (const ex of state.exercises) {
+    if (ex.season === sid) {
+      ex.used = false;
+      ex.playing = false;
+      ex.frame = 0;
+      ex.contactLock = false;
+      ex.x = ex.patrolMin;
+      ex.dir = 1;
+      ex.y = GROUND_Y - ex.h;
+    }
+  }
+  state._exerciseLock = false;
+  hideOverlay();
+  updateHud();
+  pushMsg(`${cp.label} 체크포인트!`, p.x, p.y - 30);
+}
+
 function beginExercise(ex) {
+  if (ex.playing || ex.contactLock) return;
   ex.playing = true;
-  ex.used = true;
+  ex.contactLock = true;
   ex.frame = 0;
   ex.frameT = 0;
+  ex.dir = 0; // pause patrol during interaction
   state._exerciseLock = true;
+  const p = state.player;
+  p.vx = 0;
+  p.vy = 0;
 }
 
 function finishExercise(ex) {
   ex.playing = false;
   state._exerciseLock = false;
+  // Eject player to a safe side (behind the villain relative to facing)
+  const p = state.player;
+  const ejectLeft = p.x + p.w / 2 < ex.x + ex.w / 2;
+  p.x = ejectLeft ? ex.patrolMin - p.w - 24 : ex.patrolMax + 24;
+  p.y = GROUND_Y - p.h;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.onPlatform = null;
+  // Resume patrol
+  ex.dir = ejectLeft ? 1 : -1;
+  ex.x = Math.max(ex.patrolMin, Math.min(ex.patrolMax, ex.x));
+  // One-contact damage; keep contactLock until player separates
   if (!state.ending.damageLocked) {
     state.hearts = Math.max(0, state.hearts - 1);
     state.invUntil = state.now + INVINCIBLE_MS;
-    pushMsg('-1 하트', state.player.x, state.player.y - 20);
+    pushMsg('-1 하트', p.x, p.y - 20);
     updateHud();
     if (state.hearts <= 0) {
-      state.dead = true;
-      state.running = false;
-      showOverlay('하트가 없어요…', '볼떵이가 지쳐 쓰러졌어요.', {
-        start: false,
-        near: true,
-        restart: true,
-      });
+      state.checkpointId = currentCheckpoint().id;
+      respawnAtCheckpoint();
+      return;
     }
   }
+}
+
+function tryJump(p) {
+  const canCoyote = p.coyote > 0;
+  const buffered = p.jumpBuffer > 0 || jumpQueued;
+  if (!(p.onGround || canCoyote) || !buffered) return false;
+  p.vy = JUMP_V_MAX;
+  p.onGround = false;
+  p.onPlatform = null;
+  p.jumping = true;
+  p.coyote = 0;
+  p.jumpBuffer = 0;
+  jumpQueued = false;
+  playJump();
+  return true;
 }
 
 function triggerEndingApproach() {
@@ -717,12 +932,60 @@ function updateEnding(dt) {
   }
 }
 
+function updatePatrol(dt) {
+  for (const ex of state.exercises) {
+    if (ex.playing || state._exerciseLock) continue;
+    if (ex.dir === 0) ex.dir = 1;
+    // Keep out of memory safe zones / ending — clamp patrol already set in gaps
+    ex.x += ex.dir * ex.speed * (dt / 16.67);
+    if (ex.x <= ex.patrolMin) {
+      ex.x = ex.patrolMin;
+      ex.dir = 1;
+    } else if (ex.x >= ex.patrolMax) {
+      ex.x = ex.patrolMax;
+      ex.dir = -1;
+    }
+    ex.y = GROUND_Y - ex.h;
+    // Clear contact lock once separated
+    if (ex.contactLock) {
+      const ph = playerHitbox(state.player);
+      if (!aabb(ph, villainHitbox(ex))) ex.contactLock = false;
+    }
+  }
+}
+
+function resolvePlatforms(p, prevBottom) {
+  p.onPlatform = null;
+  if (p.vy < 0) return; // rising — pass through from below
+  for (const pl of state.platforms) {
+    const withinX = p.x + p.w * 0.25 < pl.x + pl.w && p.x + p.w * 0.75 > pl.x;
+    if (!withinX) continue;
+    const feet = p.y + p.h;
+    // Land when crossing the top while falling
+    if (prevBottom <= pl.y + 4 && feet >= pl.y && feet <= pl.y + pl.h + 8) {
+      p.y = pl.y - p.h;
+      p.vy = 0;
+      p.onGround = true;
+      p.onPlatform = pl.id;
+      p.jumping = false;
+      return;
+    }
+  }
+}
+
 function update(dt) {
   if (!state || !state.running) return;
   state.now = performance.now();
   const p = state.player;
   const endingActive = state.ending.phase !== 'idle';
   const exerciseLock = !!state._exerciseLock;
+
+  jumpHeld = isJumpHeld();
+  if (jumpHeld && !jumpWasHeld) {
+    jumpQueued = true;
+    p.jumpBuffer = JUMP_BUFFER_MS;
+  }
+  jumpWasHeld = jumpHeld;
 
   for (const ex of state.exercises) {
     if (!ex.playing) continue;
@@ -734,36 +997,62 @@ function update(dt) {
     }
   }
 
+  if (!endingActive && !exerciseLock) {
+    updatePatrol(dt);
+  }
+
   if (endingActive) {
     updateEnding(dt);
   } else if (!exerciseLock) {
+    // Track checkpoint as player advances
+    const cp = currentCheckpoint();
+    if (cp && cp.id !== state.checkpointId) {
+      // only advance forward
+      const order = SEASON_BANDS.map((b) => b.id);
+      if (order.indexOf(cp.id) > order.indexOf(state.checkpointId)) {
+        state.checkpointId = cp.id;
+      }
+    }
+
     let move = 0;
     if (wantLeft()) move -= 1;
     if (wantRight()) move += 1;
-    p.vx = move * MOVE_SPEED;
+    const control = p.onGround ? 1 : AIR_CONTROL;
+    p.vx = move * MOVE_SPEED * control;
     if (move !== 0) p.facing = move > 0 ? 1 : -1;
 
-    if (wantJump() && p.onGround) {
-      p.vy = JUMP_V;
-      p.onGround = false;
-      jumpQueued = false;
-      playJump();
-    } else if (p.onGround) {
-      jumpQueued = false;
-    }
+    if (p.onGround) p.coyote = COYOTE_MS;
+    else p.coyote = Math.max(0, p.coyote - dt);
+    if (p.jumpBuffer > 0) p.jumpBuffer = Math.max(0, p.jumpBuffer - dt);
 
+    tryJump(p);
+
+    // Variable jump height: release early while rising → cut upward velocity
+    if (p.jumping && p.vy < 0 && !jumpHeld) {
+      p.vy *= JUMP_CUT_MULT;
+      p.jumping = false;
+    }
+    if (p.vy >= 0) p.jumping = false;
+
+    const prevBottom = p.y + p.h;
     p.vy += GRAVITY;
     p.x += p.vx;
     p.y += p.vy;
     p.x = Math.max(40, Math.min(state.worldEnd - p.w - 20, p.x));
 
+    p.onGround = false;
+    resolvePlatforms(p, prevBottom);
+
     if (p.y + p.h >= GROUND_Y) {
       p.y = GROUND_Y - p.h;
       p.vy = 0;
       p.onGround = true;
-    } else {
-      p.onGround = false;
+      p.onPlatform = null;
+      p.jumping = false;
     }
+
+    // Consume buffered jump on landing
+    if (p.onGround) tryJump(p);
 
     if (!p.onGround) {
       p.anim = 'jump';
@@ -784,9 +1073,10 @@ function update(dt) {
       p.frame = 0;
     }
 
+    const ph = playerHitbox(p);
     for (const f of state.foods) {
       if (f.taken) continue;
-      if (aabb({ x: p.x + 8, y: p.y + 8, w: p.w - 16, h: p.h - 8 }, f)) {
+      if (aabb(ph, f)) {
         f.taken = true;
         playHeal();
         if (state.hearts < MAX_HEARTS) {
@@ -799,16 +1089,15 @@ function update(dt) {
       }
     }
 
-    // Viewing a memory is always safe — no exercise damage in front of boards
+    // Avoid obstacles by jumping — touch triggers exercise once
     if (
       state.now >= state.invUntil &&
       !state.ending.damageLocked &&
       !inMemorySafeZone(p.x + p.w / 2)
     ) {
       for (const ex of state.exercises) {
-        if (ex.used || ex.playing) continue;
-        const hit = { x: ex.x + 20, y: ex.y + 36, w: ex.w - 40, h: ex.h - 40 };
-        if (aabb({ x: p.x + 10, y: p.y + 10, w: p.w - 20, h: p.h - 10 }, hit)) {
+        if (ex.playing || ex.contactLock) continue;
+        if (aabb(ph, villainHitbox(ex))) {
           beginExercise(ex);
           break;
         }
@@ -818,7 +1107,6 @@ function update(dt) {
     updateEnding(dt);
   }
 
-  // Camera: world-scroll with player; lock for ending so wedding + chars visible
   if (state.cameraLock || endingActive) {
     const e = state.ending;
     const target = Math.max(0, Math.min(state.worldEnd - W, e.weddingCx - W * 0.42));
@@ -948,6 +1236,41 @@ function drawMemories() {
   }
 }
 
+function drawPlatforms() {
+  const cam = state.cameraX;
+  for (const pl of state.platforms) {
+    const sx = pl.x - cam;
+    if (sx + pl.w < -20 || sx > W + 20) continue;
+    let top;
+    let side;
+    let lip;
+    if (pl.kind === 'brick') {
+      top = '#c45c48';
+      side = '#8a3a2e';
+      lip = '#e8a090';
+    } else if (pl.kind === 'wood') {
+      top = '#c4a06a';
+      side = '#7a5a30';
+      lip = '#e8d0a0';
+    } else {
+      top = '#9aa0a8';
+      side = '#5a6068';
+      lip = '#d0d4d8';
+    }
+    ctx.fillStyle = side;
+    ctx.fillRect(Math.round(sx), Math.round(pl.y), Math.round(pl.w), pl.h + 6);
+    ctx.fillStyle = top;
+    ctx.fillRect(Math.round(sx), Math.round(pl.y), Math.round(pl.w), pl.h);
+    ctx.fillStyle = lip;
+    ctx.fillRect(Math.round(sx), Math.round(pl.y), Math.round(pl.w), 3);
+    // pixel studs
+    ctx.fillStyle = side;
+    for (let x = 8; x < pl.w - 4; x += 18) {
+      ctx.fillRect(Math.round(sx + x), Math.round(pl.y + 6), 4, 3);
+    }
+  }
+}
+
 function drawFoods() {
   const cam = state.cameraX;
   const bob = Math.sin(state.now / 280) * 3;
@@ -988,13 +1311,11 @@ function drawExercises() {
       if (img && b) {
         const h = ex.h;
         const w = Math.round((b.ow / b.oh) * h);
-        ctx.drawImage(img, b.ox, b.oy, b.ow, b.oh, sx + (ex.w - w) / 2, GROUND_Y - h, w, h);
+        ctx.drawImage(img, b.ox, b.oy, b.ow, b.oh, sx + (ex.w - w) / 2, ex.y, w, h);
       }
-      if (!ex.used) {
-        ctx.fillStyle = 'rgba(232, 93, 76, 0.9)';
-        ctx.font = '700 18px Gaegu, sans-serif';
-        ctx.fillText('!', sx + ex.w / 2 - 4, ex.y + 14);
-      }
+      ctx.fillStyle = 'rgba(232, 93, 76, 0.9)';
+      ctx.font = '700 18px Gaegu, sans-serif';
+      ctx.fillText('!', sx + ex.w / 2 - 4, ex.y + 14);
     }
   }
 }
@@ -1094,10 +1415,11 @@ function render() {
     ctx.fillRect(0, 0, W, H);
     return;
   }
-  // Layer: season bg → ground (foot line) → memories → props → characters on top of path
+  // Layer: season bg → ground → memories → platforms → props → characters
   drawSeasonBackground();
   drawGround();
   drawMemories();
+  drawPlatforms();
   drawFoods();
   drawExercises();
   drawEndingChars();
@@ -1127,7 +1449,10 @@ function loop(now) {
 function bindInput() {
   window.addEventListener('keydown', (e) => {
     keys.add(e.key);
-    if (isJumpKey(e.key)) jumpQueued = true;
+    if (isJumpKey(e.key)) {
+      jumpQueued = true;
+      if (state?.player) state.player.jumpBuffer = JUMP_BUFFER_MS;
+    }
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'Space', 'z', 'Z'].includes(e.key)) {
       e.preventDefault();
     }
@@ -1143,7 +1468,10 @@ function bindInput() {
     const on = (ev) => {
       ev.preventDefault();
       touch[prop] = true;
-      if (prop === 'jump') jumpQueued = true;
+      if (prop === 'jump') {
+        jumpQueued = true;
+        if (state?.player) state.player.jumpBuffer = JUMP_BUFFER_MS;
+      }
     };
     const off = (ev) => {
       ev.preventDefault();
@@ -1282,6 +1610,19 @@ async function boot() {
               const b = seasonBlend();
               return { progress: b.p, i0: b.i0, i1: b.i1, t: b.t, name: SEASON_KEYS[seasonIndex()] };
             })(),
+            checkpointId: state.checkpointId,
+            onGround: state.player.onGround,
+            onPlatform: state.player.onPlatform,
+            maxJumpH: state.maxJumpH,
+            villainH: state.villainH,
+            platforms: state.platforms.length,
+            exercises: state.exercises.map((ex) => ({
+              id: ex.id,
+              x: ex.x,
+              min: ex.patrolMin,
+              max: ex.patrolMax,
+              playing: ex.playing,
+            })),
           }
         : null,
   };
