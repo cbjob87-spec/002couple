@@ -31,8 +31,8 @@ import {
 } from './audio.js';
 
 /** Live build stamp — must appear on published site after refresh. */
-export const BUILD_VERSION = '20261107-1905-fix3';
-export const BUILD_EDITED_AT = '2026-11-07T19:05+09:00';
+export const BUILD_VERSION = '20261107-1930-boss';
+export const BUILD_EDITED_AT = '2026-11-07T19:30+09:00';
 
 const W = 960;
 const H = 540;
@@ -73,6 +73,35 @@ const EXERCISE_META = {
   treadmillEncounter: { footY: 403, headTop: 39, bodyCx: 230, bodyH: 364 },
   bikeEncounter: { footY: 413, headTop: 26, bodyCx: 235, bodyH: 387 },
 };
+/** 볼떵이 burpee(0–3) / pushup(4–7) — 4×2, integer 443 cells. */
+const WORKOUT_CELL = { cols: 4, rows: 2, fw: 443, fh: 443 };
+const WORKOUT_FRAMES = [
+  { footY: 413, headTop: 76, bodyCx: 226, bodyH: 337 }, // burpee stand
+  { footY: 421, headTop: 141, bodyCx: 233, bodyH: 280 }, // burpee crouch
+  { footY: 419, headTop: 146, bodyCx: 232, bodyH: 273 }, // burpee plank
+  { footY: 405, headTop: 51, bodyCx: 224, bodyH: 354 }, // burpee jump (lift)
+  { footY: 389, headTop: 107, bodyCx: 241, bodyH: 282 }, // pushup high
+  { footY: 382, headTop: 128, bodyCx: 237, bodyH: 254 }, // pushup mid
+  { footY: 385, headTop: 162, bodyCx: 235, bodyH: 223 }, // pushup low
+  { footY: 388, headTop: 107, bodyCx: 243, bodyH: 281 }, // pushup up
+];
+const WORKOUT_MS = 2000;
+/** 김계란 boss sheet frames. */
+const BOSS_CELL = { cols: 4, rows: 2, fw: 443, fh: 443 };
+const BOSS_FRAMES = [
+  { footY: 415, headTop: 30, bodyCx: 233, bodyH: 385 }, // idle
+  { footY: 415, headTop: 61, bodyCx: 221, bodyH: 354 }, // run A
+  { footY: 403, headTop: 67, bodyCx: 208, bodyH: 336 }, // run B
+  { footY: 418, headTop: 119, bodyCx: 210, bodyH: 299 }, // crouch telegraph
+  { footY: 353, headTop: 25, bodyCx: 229, bodyH: 328 }, // air jump
+  { footY: 408, headTop: 134, bodyCx: 216, bodyH: 274 }, // land
+  { footY: 412, headTop: 25, bodyCx: 232, bodyH: 387 }, // point / instruct
+  { footY: 412, headTop: 25, bodyCx: 231, bodyH: 387 }, // stopwatch
+];
+const BOSS_TELEGRAPH_MS = 600;
+const BOSS_REST_MS = 800;
+const BOSS_JUMP_MS = 520;
+const BOSS_JUMP_PEAK = 130;
 /** Per-frame foot/body metrics in cell pixels (idle frame 0 is scale reference). */
 const PLAYER_FRAMES = [
   { footY: 303, headTop: 33, bodyH: 271, bodyCx: 179, torsoW: 189, headW: 139 },
@@ -145,6 +174,8 @@ const BOL_SCALE = BOLPPANGI_SCALE;
 
 const ASSETS = {
   playerSheet: 'boltongi-walk-jump.png',
+  workoutSheet: 'boltongi-burpee-pushup.png',
+  bossSheet: 'boss-kim-gyeran.png',
   treadmillEncounter: 'exercise-treadmill-encounter.png',
   bikeEncounter: 'exercise-bike-encounter.png',
   treadmillVillain: 'treadmill-villain.png',
@@ -170,6 +201,7 @@ const ASSETS = {
   extremejob: 'billboard-extremejob.png',
   cyrano: 'billboard-cyrano.png',
   dongbang: 'memory-dongbangshinki.png',
+  gaenari: 'memory-gaenari-apt.png',
   wedding: 'wedding-billboard.png',
   bolBehind: 'bolppangi-flowers-behind.png',
   bolFront: 'bolppangi-flowers-front.png',
@@ -202,6 +234,7 @@ const BOUNDS = {
   cyrano: { ox: 113, oy: 48, ow: 1087, oh: 1126 },
   lv: { ox: 225, oy: 44, ow: 1086, oh: 949 },
   dongbang: { ox: 205, oy: 74, ow: 707, oh: 1286 },
+  gaenari: { ox: 55, oy: 28, ow: 1420, oh: 964 },
   wedding: { ox: 102, oy: 23, ow: 818, oh: 1492 },
   bolBehind: { ox: 165, oy: 129, ow: 928, oh: 1004 },
   bolFront: { ox: 46, oy: 59, ow: 1187, oh: 1095 },
@@ -226,6 +259,7 @@ const MEMORY_DEFS = [
   { id: 'mcdonalds', key: 'mcdonalds', label: '맥도날드', kind: 'billboard', hFrac: 0.58 },
   // Standalone portrait art (ea77438a ≡ bb05cdea) — grounded display, no extra frame
   { id: 'dongbang', key: 'dongbang', label: '동방신기', kind: 'portrait', hFrac: 0.58 },
+  { id: 'gaenari', key: 'gaenari', label: '개나리아파트', kind: 'building', hFrac: 0.72 },
   { id: 'coffee', key: 'coffee', label: '툇마루커피', kind: 'billboard', hFrac: 0.55 },
   { id: 'sealife', key: 'sealife', label: '아쿠아리움', kind: 'billboard', hFrac: 0.55 },
   { id: 'paragliding', key: 'paragliding', label: '패러글라이딩', kind: 'billboard', hFrac: 0.58 },
@@ -263,12 +297,12 @@ let jumpQueued = false;
 let jumpHeld = false;
 let jumpWasHeld = false;
 
-/** Season bands by memory index (19 memories: 0..18). */
+/** Season bands by memory index (20 memories: 0..19 after 개나리). */
 const SEASON_BANDS = [
   { id: 'winter', i0: 0, i1: 3, label: '겨울' },
-  { id: 'spring', i0: 4, i1: 8, label: '봄' },
-  { id: 'summer', i0: 9, i1: 13, label: '여름' },
-  { id: 'autumn', i0: 14, i1: 18, label: '가을' },
+  { id: 'spring', i0: 4, i1: 9, label: '봄' },
+  { id: 'summer', i0: 10, i1: 14, label: '여름' },
+  { id: 'autumn', i0: 15, i1: 19, label: '가을' },
 ];
 
 function loadImage(name) {
@@ -601,8 +635,8 @@ function createState(mode = 'normal') {
       id: 'tm-su1',
       type: 'treadmill',
       season: 'summer',
-      x0: gapCenter(10) - 100,
-      x1: gapCenter(10) + 60,
+      x0: gapCenter(11) - 100,
+      x1: gapCenter(11) + 60,
       speed: patrolSpeed * 1.05,
       cols: 4,
       rows: 2,
@@ -614,8 +648,8 @@ function createState(mode = 'normal') {
       id: 'bk-su2',
       type: 'bike',
       season: 'summer',
-      x0: gapCenter(12) - 50,
-      x1: gapCenter(12) + 110,
+      x0: gapCenter(13) - 50,
+      x1: gapCenter(13) + 110,
       speed: patrolSpeed * 0.95,
       cols: 4,
       rows: 2,
@@ -623,6 +657,41 @@ function createState(mode = 'normal') {
       sheet: 'bikeEncounter',
       idle: 'bikeVillain',
     }),
+  ];
+
+  // Late-game boss: 김계란 — autumn gap before ending, never enters wedding zone
+  const bossH = Math.round(PLAYER_H * 1.35);
+  const bossW = Math.round(bossH * 0.55);
+  const endingKeepOut = wedding.cx - W * 0.85;
+  const bossMin = Math.min(gapCenter(16) - 160, endingKeepOut - 420);
+  const bossMax = Math.min(gapCenter(17) + 40, endingKeepOut - 80);
+  const bosses = [
+    {
+      id: 'kim-gyeran',
+      type: 'boss',
+      x: bossMin + 40,
+      y: GROUND_Y - bossH,
+      w: bossW,
+      h: bossH,
+      hitPadX: Math.round(bossW * 0.18),
+      hitPadTop: Math.round(bossH * 0.12),
+      hitPadBot: Math.round(bossH * 0.06),
+      patrolMin: bossMin,
+      patrolMax: Math.max(bossMin + 120, bossMax),
+      dir: 1,
+      speed: patrolSpeed * 1.15,
+      season: 'autumn',
+      phase: 'patrol', // patrol | telegraph | jump | rest | instruct
+      timer: 0,
+      frame: 0,
+      frameT: 0,
+      airY: 0,
+      jumpFromX: 0,
+      jumpLandX: 0,
+      jumpT: 0,
+      contactLock: false,
+      scale: bossH / BOSS_FRAMES[0].bodyH,
+    },
   ];
 
   // Platforms: one-way tops. Heights within jump envelope; widths ≥ 2× player.
@@ -638,22 +707,22 @@ function createState(mode = 'normal') {
     { id: 'sp2', x: gapCenter(5) - platW / 2 + 20, y: GROUND_Y - h2, w: platW, h: 16, kind: 'brick', season: 'spring' },
     { id: 'sp3', x: gapCenter(6) - platW / 2 - 20, y: GROUND_Y - h1, w: platW * 1.1, h: 16, kind: 'wood', season: 'spring' },
     // Summer varied heights (bypass ground patrols)
-    { id: 'su1', x: gapCenter(9) - platW / 2, y: GROUND_Y - h3, w: platW, h: 16, kind: 'stone', season: 'summer' },
-    { id: 'su2', x: gapCenter(10) - platW / 2 + 50, y: GROUND_Y - h2, w: platW, h: 16, kind: 'wood', season: 'summer' },
-    { id: 'su3', x: gapCenter(11) - platW / 2 - 30, y: GROUND_Y - h1, w: platW * 1.15, h: 16, kind: 'brick', season: 'summer' },
-    { id: 'su4', x: gapCenter(12) - platW / 2 + 10, y: GROUND_Y - h2, w: platW, h: 16, kind: 'stone', season: 'summer' },
-    // Autumn — gentle low step only, clear of wedding
-    { id: 'a1', x: gapCenter(15) - platW / 2, y: GROUND_Y - Math.round(MAX_JUMP_H * 0.35), w: platW, h: 16, kind: 'wood', season: 'autumn' },
+    { id: 'su1', x: gapCenter(10) - platW / 2, y: GROUND_Y - h3, w: platW, h: 16, kind: 'stone', season: 'summer' },
+    { id: 'su2', x: gapCenter(11) - platW / 2 + 50, y: GROUND_Y - h2, w: platW, h: 16, kind: 'wood', season: 'summer' },
+    { id: 'su3', x: gapCenter(12) - platW / 2 - 30, y: GROUND_Y - h1, w: platW * 1.15, h: 16, kind: 'brick', season: 'summer' },
+    { id: 'su4', x: gapCenter(13) - platW / 2 + 10, y: GROUND_Y - h2, w: platW, h: 16, kind: 'stone', season: 'summer' },
+    // Autumn — gentle low step only, clear of wedding / boss arena
+    { id: 'a1', x: gapCenter(16) - platW / 2, y: GROUND_Y - Math.round(MAX_JUMP_H * 0.35), w: platW, h: 16, kind: 'wood', season: 'autumn' },
   ];
 
   const foods = [
     { id: 'c1', kind: 'chicken', x: gapCenter(0) - 20, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'winter' },
     { id: 'p-w', kind: 'pizza', x: platforms[0].x + platforms[0].w / 2 - 24, y: platforms[0].y - 52, w: 48, h: 48, taken: false, season: 'winter' },
     { id: 'p-sp', kind: 'burger', x: platforms[2].x + platforms[2].w / 2 - 24, y: platforms[2].y - 52, w: 48, h: 48, taken: false, season: 'spring' },
-    { id: 'c-sp', kind: 'chicken', x: gapCenter(7) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'spring' },
+    { id: 'c-sp', kind: 'chicken', x: gapCenter(8) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'spring' },
     { id: 'p-su', kind: 'pizza', x: platforms[5].x + platforms[5].w / 2 - 24, y: platforms[5].y - 52, w: 48, h: 48, taken: false, season: 'summer' },
     { id: 'b-su', kind: 'burger', x: platforms[7].x + platforms[7].w / 2 - 24, y: platforms[7].y - 52, w: 48, h: 48, taken: false, season: 'summer' },
-    { id: 'c-a', kind: 'chicken', x: gapCenter(16) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'autumn' },
+    { id: 'c-a', kind: 'chicken', x: gapCenter(17) - 10, y: GROUND_Y - 56, w: 48, h: 48, taken: false, season: 'autumn' },
   ];
 
   const checkpoints = SEASON_BANDS.map((b) => {
@@ -704,6 +773,8 @@ function createState(mode = 'normal') {
     },
     foods,
     exercises,
+    bosses,
+    workout: null, // { kind, frame, t, bossId } while player forced exercise
     ending: {
       phase: 'idle',
       bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85),
@@ -881,6 +952,19 @@ function respawnAtCheckpoint() {
       ex.y = GROUND_Y - ex.h;
     }
   }
+  for (const b of state.bosses || []) {
+    if (b.season === sid) {
+      b.phase = 'patrol';
+      b.timer = 0;
+      b.frame = 0;
+      b.airY = 0;
+      b.contactLock = false;
+      b.x = b.patrolMin;
+      b.dir = 1;
+      b.y = GROUND_Y - b.h;
+    }
+  }
+  state.workout = null;
   state._exerciseLock = false;
   p.hidden = false;
   hideOverlay();
@@ -944,6 +1028,211 @@ function finishExercise(ex) {
       return;
     }
   }
+}
+
+function bossHitbox(b) {
+  return {
+    x: b.x + b.hitPadX,
+    y: b.y + b.hitPadTop - (b.airY || 0),
+    w: b.w - b.hitPadX * 2,
+    h: b.h - b.hitPadTop - b.hitPadBot,
+  };
+}
+
+function beginBossWorkout(boss) {
+  if (state._exerciseLock || state.workout || boss.contactLock) return;
+  if (state.now < state.invUntil || state.ending.damageLocked) return;
+  const kind = Math.random() < 0.5 ? 'burpee' : 'pushup';
+  const p = state.player;
+  // Immediate damage + HUD
+  state.hearts = Math.max(0, state.hearts - 1);
+  updateHud();
+  pushMsg(kind === 'burpee' ? '버피!' : '푸시업!', p.x, p.y - 24);
+  pushMsg('-1 하트', p.x, p.y - 48);
+
+  state._exerciseLock = true;
+  state.workout = {
+    kind,
+    t: 0,
+    frame: 0,
+    frameT: 0,
+    bossId: boss.id,
+    baseFrame: kind === 'burpee' ? 0 : 4,
+  };
+  boss.phase = 'instruct';
+  boss.timer = 0;
+  boss.airY = 0;
+  boss.contactLock = true;
+  boss.frame = 6;
+  p.hidden = true;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.y = GROUND_Y - p.h;
+  // Stand near boss for the drill
+  const left = p.x + p.w / 2 < boss.x + boss.w / 2;
+  p.x = left ? boss.x - p.w - 18 : boss.x + boss.w + 18;
+  p.facing = left ? 1 : -1;
+
+  if (state.hearts <= 0) {
+    // Still show a beat of workout? Spec: checkpoint restart when 0.
+    // Finish immediately into respawn after locking damage feedback.
+    state.checkpointId = currentCheckpoint().id;
+    state.workout = null;
+    state._exerciseLock = false;
+    p.hidden = false;
+    boss.phase = 'patrol';
+    boss.contactLock = false;
+    respawnAtCheckpoint();
+  }
+}
+
+function finishBossWorkout() {
+  const w = state.workout;
+  const boss = (state.bosses || []).find((b) => b.id === (w && w.bossId)) || (state.bosses || [])[0];
+  state.workout = null;
+  state._exerciseLock = false;
+  const p = state.player;
+  p.hidden = false;
+  p.h = PLAYER_H;
+  p.w = PLAYER_W;
+  p.anim = 'idle';
+  p.frame = 0;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.onPlatform = null;
+  if (boss) {
+    const ejectLeft = p.x + p.w / 2 < boss.x + boss.w / 2;
+    p.x = ejectLeft ? boss.patrolMin - p.w - 28 : boss.patrolMax + 28;
+    p.y = GROUND_Y - p.h;
+    boss.phase = 'rest';
+    boss.timer = 0;
+    boss.frame = 5;
+    boss.airY = 0;
+    boss.y = GROUND_Y - boss.h;
+    boss.dir = ejectLeft ? 1 : -1;
+    boss.x = Math.max(boss.patrolMin, Math.min(boss.patrolMax, boss.x));
+  } else {
+    p.y = GROUND_Y - p.h;
+  }
+  state.invUntil = state.now + INVINCIBLE_MS;
+}
+
+function updateBosses(dt) {
+  if (!state.bosses) return;
+  const p = state.player;
+  const gScale = dt / 16.67;
+  for (const b of state.bosses) {
+    // Never enter ending / wedding approach
+    if (b.patrolMax > state.ending.weddingCx - W * 0.85) {
+      b.patrolMax = state.ending.weddingCx - W * 0.85;
+    }
+
+    if (b.contactLock && !state.workout) {
+      if (!aabb(playerHitbox(p), bossHitbox(b))) b.contactLock = false;
+    }
+
+    if (b.phase === 'instruct') {
+      b.frameT = (b.frameT || 0) + dt;
+      if (b.frameT > 280) {
+        b.frameT = 0;
+        b.frame = b.frame === 6 ? 7 : 6;
+      }
+      b.airY = 0;
+      b.y = GROUND_Y - b.h;
+      continue;
+    }
+
+    if (b.phase === 'telegraph') {
+      b.timer += dt;
+      b.frame = 3;
+      b.airY = 0;
+      b.y = GROUND_Y - b.h;
+      // ! drawn in drawBosses
+      if (b.timer >= BOSS_TELEGRAPH_MS) {
+        // Lock landing X now — no mid-air player chase
+        const toward = p.x + p.w / 2 >= b.x + b.w / 2 ? 1 : -1;
+        const leap = 140 + Math.random() * 100;
+        b.jumpFromX = b.x;
+        b.jumpLandX = Math.max(b.patrolMin, Math.min(b.patrolMax, b.x + toward * leap));
+        b.dir = b.jumpLandX >= b.jumpFromX ? 1 : -1;
+        b.jumpT = 0;
+        b.phase = 'jump';
+        b.timer = 0;
+        b.frame = 4;
+      }
+      continue;
+    }
+
+    if (b.phase === 'jump') {
+      b.jumpT += dt;
+      const t = Math.min(1, b.jumpT / BOSS_JUMP_MS);
+      b.x = b.jumpFromX + (b.jumpLandX - b.jumpFromX) * t;
+      b.airY = 4 * BOSS_JUMP_PEAK * t * (1 - t);
+      b.y = GROUND_Y - b.h - b.airY;
+      b.frame = 4;
+      if (t >= 1) {
+        b.x = b.jumpLandX;
+        b.airY = 0;
+        b.y = GROUND_Y - b.h;
+        b.phase = 'rest';
+        b.timer = 0;
+        b.frame = 5;
+      }
+      continue;
+    }
+
+    if (b.phase === 'rest') {
+      b.timer += dt;
+      b.frame = 5;
+      b.airY = 0;
+      b.y = GROUND_Y - b.h;
+      if (b.timer >= BOSS_REST_MS) {
+        b.phase = 'patrol';
+        b.timer = 0;
+        b.frame = 1;
+      }
+      continue;
+    }
+
+    // patrol
+    b.x += b.dir * b.speed * gScale;
+    if (b.x <= b.patrolMin) {
+      b.x = b.patrolMin;
+      b.dir = 1;
+    } else if (b.x >= b.patrolMax) {
+      b.x = b.patrolMax;
+      b.dir = -1;
+    }
+    b.airY = 0;
+    b.y = GROUND_Y - b.h;
+    b.frameT = (b.frameT || 0) + dt;
+    if (b.frameT > 120) {
+      b.frameT = 0;
+      b.frame = b.frame === 1 ? 2 : 1;
+    }
+    // Periodically wind up a jump
+    b.timer += dt;
+    if (b.timer > 1600 + Math.random() * 900) {
+      b.phase = 'telegraph';
+      b.timer = 0;
+      b.frame = 3;
+    }
+  }
+}
+
+function updateWorkout(dt) {
+  const w = state.workout;
+  if (!w) return;
+  w.t += dt;
+  w.frameT += dt;
+  const frameDur = WORKOUT_MS / 4;
+  if (w.frameT >= frameDur) {
+    w.frameT = 0;
+    w.frame = (w.frame + 1) % 4;
+  }
+  if (w.t >= WORKOUT_MS) finishBossWorkout();
 }
 
 function tryJump(p) {
@@ -1138,8 +1427,14 @@ function update(dt) {
     }
   }
 
+  if (state.workout) updateWorkout(dt);
+
   if (!endingActive && !exerciseLock) {
     updatePatrol(dt);
+    updateBosses(dt);
+  } else if (!endingActive && state.workout) {
+    // Boss stays in instruct pose while player workouts
+    updateBosses(dt);
   }
 
   if (endingActive) {
@@ -1238,11 +1533,22 @@ function update(dt) {
       !state.ending.damageLocked &&
       !inMemorySafeZone(p.x + p.w / 2)
     ) {
+      let hit = false;
       for (const ex of state.exercises) {
         if (ex.playing || ex.contactLock) continue;
         if (aabb(ph, villainHitbox(ex))) {
           beginExercise(ex);
+          hit = true;
           break;
+        }
+      }
+      if (!hit) {
+        for (const b of state.bosses || []) {
+          if (b.contactLock || b.phase === 'instruct') continue;
+          if (aabb(ph, bossHitbox(b))) {
+            beginBossWorkout(b);
+            break;
+          }
         }
       }
     }
@@ -1478,10 +1784,70 @@ function drawExercises() {
   }
 }
 
+function drawBosses() {
+  if (!state.bosses) return;
+  const cam = state.cameraX;
+  for (const b of state.bosses) {
+    const sx = b.x - cam;
+    if (sx + b.w < -60 || sx > W + 60) continue;
+    const meta = BOSS_FRAMES[b.frame] || BOSS_FRAMES[0];
+    const feetY = GROUND_Y - (b.airY || 0);
+    drawSheetAtFeet(
+      images.bossSheet,
+      BOSS_CELL.cols,
+      BOSS_CELL.rows,
+      b.frame,
+      meta,
+      b.scale,
+      b.x + b.w / 2,
+      feetY,
+      cam,
+      b.dir < 0,
+      BOSS_CELL.fw,
+      BOSS_CELL.fh,
+    );
+    if (b.phase === 'telegraph') {
+      ctx.fillStyle = 'rgba(232, 93, 76, 0.95)';
+      ctx.font = '700 28px Gaegu, sans-serif';
+      ctx.fillText('!', sx + b.w / 2 - 6, b.y - 8 - (b.airY || 0));
+    }
+  }
+}
+
+/** Forced burpee/pushup — hides walk sprite; feet grounded except burpee jump frame lift. */
+function drawWorkoutPlayer() {
+  const w = state.workout;
+  if (!w) return;
+  const p = state.player;
+  const cam = state.cameraX;
+  const idx = w.baseFrame + (w.frame % 4);
+  const meta = WORKOUT_FRAMES[idx] || WORKOUT_FRAMES[0];
+  // Keep chubbiness ≈ walk body: scale from opaque body height of stand frame
+  const scale = CHARACTER_BODY_H / WORKOUT_FRAMES[0].bodyH;
+  drawSheetAtFeet(
+    images.workoutSheet,
+    WORKOUT_CELL.cols,
+    WORKOUT_CELL.rows,
+    idx,
+    meta,
+    scale,
+    p.x + p.w / 2,
+    GROUND_Y,
+    cam,
+    p.facing < 0,
+    WORKOUT_CELL.fw,
+    WORKOUT_CELL.fh,
+  );
+}
+
 /** Draw 볼떵이 (player) — always PLAYER_SCALE for every anim/state. */
 function drawPlayer() {
   if (state.ending.hideIndividuals) return;
   const p = state.player;
+  if (state.workout) {
+    drawWorkoutPlayer();
+    return;
+  }
   // Exclusive with exercise encounter art (which already contains 볼떵이 + machine).
   if (p.hidden || state._exerciseLock || activeExercise()) return;
   const cam = state.cameraX;
@@ -1586,6 +1952,7 @@ function render() {
   drawPlatforms();
   drawFoods();
   drawExercises();
+  drawBosses();
   drawEndingChars();
   drawPlayer();
   drawMsgs();
@@ -1756,6 +2123,25 @@ async function boot() {
       const ex = state?.exercises?.find((e) => e.id === id) || state?.exercises?.[0];
       if (ex) beginExercise(ex);
       return !!ex;
+    },
+    forceBoss: () => {
+      const b = state?.bosses?.[0];
+      if (!b) return false;
+      state.cameraX = Math.max(0, b.x - 400);
+      state.player.x = b.x - 40;
+      state.player.y = GROUND_Y - state.player.h;
+      state.invUntil = 0;
+      beginBossWorkout(b);
+      return true;
+    },
+    forceBossJump: () => {
+      const b = state?.bosses?.[0];
+      if (!b || state.workout) return false;
+      b.phase = 'telegraph';
+      b.timer = 0;
+      b.frame = 3;
+      state.cameraX = Math.max(0, b.x - 400);
+      return true;
     },
     scales: {
       characterBodyH: CHARACTER_BODY_H,
