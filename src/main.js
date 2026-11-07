@@ -31,8 +31,8 @@ import {
 } from './audio.js';
 
 /** Live build stamp — must appear on published site after refresh. */
-export const BUILD_VERSION = '20261107-2118-letter';
-export const BUILD_EDITED_AT = '2026-11-07T21:18+09:00';
+export const BUILD_VERSION = '20261107-2135-weather';
+export const BUILD_EDITED_AT = '2026-11-07T21:35+09:00';
 
 const W = 960;
 const H = 540;
@@ -57,6 +57,11 @@ const LETTER_DELAY_MS = 600;
 const LETTER_FADE_MS = 800;
 const ENDING_TRIGGER_DIST = 160;
 const CLOSE_STEP = 40;
+/** Season FX crossfade when the band changes. */
+const WEATHER_FADE_MS = 1500;
+const WEATHER_KINDS = ['snow', 'petal', 'firefly', 'leaf'];
+const LEAF_COLORS = ['#e07030', '#c03828', '#d4a020', '#b84818', '#e88840'];
+const PETAL_COLORS = ['#f5b8c8', '#f0a0b8', '#ffd0dc', '#e890a8'];
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
 /** Peak jump height (px) from JUMP_V_MAX + GRAVITY (frame-normalized). */
 const MAX_JUMP_H = (JUMP_V_MAX * JUMP_V_MAX) / (2 * GRAVITY);
@@ -879,7 +884,331 @@ function createState(mode = 'normal') {
     now: performance.now(),
     floatMsgs: [],
     _exerciseLock: false,
+    weather: createWeatherState(seasonIndexFromProgress(near ? 1 : 0)),
   };
+}
+
+/** Season index 0..3 from a fake progress (for createState before camera exists). */
+function seasonIndexFromProgress(p) {
+  const scaled = Math.max(0, Math.min(1, p)) * (SEASON_KEYS.length - 1);
+  const i0 = Math.min(3, Math.floor(scaled));
+  const i1 = Math.min(3, i0 + 1);
+  const t = scaled - i0;
+  return t > 0.5 ? i1 : i0;
+}
+
+function isMobileWeather() {
+  const w = stageWrap?.clientWidth || window.innerWidth || W;
+  return w < 640 || (window.matchMedia?.('(pointer: coarse)')?.matches && w < 900);
+}
+
+function weatherCap(kind) {
+  const mobile = isMobileWeather();
+  if (kind === 0) return mobile ? 22 : 38; // snow
+  if (kind === 1) return mobile ? 16 : 28; // petal
+  if (kind === 2) return mobile ? 10 : 18; // firefly
+  return mobile ? 14 : 24; // leaf
+}
+
+function createWeatherState(kind = 0) {
+  const pool = [];
+  const maxPool = 48; // shared pool; reuse off-screen
+  for (let i = 0; i < maxPool; i++) {
+    pool.push({
+      alive: false,
+      kind: 0,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      size: 2,
+      rot: 0,
+      rotV: 0,
+      phase: 0,
+      sway: 0,
+      color: '#fff',
+      alpha: 1,
+      grounded: false,
+      groundT: 0,
+      fade: 1,
+    });
+  }
+  return {
+    kind,
+    prevKind: -1,
+    fadeIn: 1,
+    fadeOut: 0,
+    particles: pool,
+  };
+}
+
+function resetWeather(weather, kind) {
+  for (const p of weather.particles) p.alive = false;
+  weather.kind = kind;
+  weather.prevKind = -1;
+  weather.fadeIn = 1;
+  weather.fadeOut = 0;
+}
+
+function allocWeatherParticle(weather) {
+  for (const p of weather.particles) {
+    if (!p.alive) return p;
+  }
+  // Reuse farthest / oldest off-screen-ish: recycle first grounded-fading or first
+  let best = weather.particles[0];
+  for (const p of weather.particles) {
+    if (p.grounded || p.y > H + 20 || p.y < -40) {
+      best = p;
+      break;
+    }
+  }
+  return best;
+}
+
+function spawnWeatherParticle(weather, kind, preferTop = true) {
+  const p = allocWeatherParticle(weather);
+  p.alive = true;
+  p.kind = kind;
+  p.grounded = false;
+  p.groundT = 0;
+  p.fade = 1;
+  p.phase = Math.random() * Math.PI * 2;
+  p.sway = 0.4 + Math.random() * 1.2;
+  p.rot = Math.random() * Math.PI * 2;
+  p.x = Math.random() * (W + 40) - 20;
+  if (kind === 2) {
+    // Fireflies drift near the grass line
+    p.y = GROUND_Y - 18 - Math.random() * 90;
+    p.x = Math.random() * W;
+    p.vx = (Math.random() - 0.5) * 0.35;
+    p.vy = (Math.random() - 0.5) * 0.22;
+    p.size = 1 + Math.floor(Math.random() * 2);
+    p.color = Math.random() > 0.35 ? '#f0e060' : '#ffe888';
+    p.alpha = 0.35 + Math.random() * 0.4;
+    p.rotV = 0;
+  } else {
+    p.y = preferTop ? -10 - Math.random() * 40 : Math.random() * (GROUND_Y - 40);
+    if (kind === 0) {
+      p.size = 1 + Math.floor(Math.random() * 3);
+      p.vx = (Math.random() - 0.5) * 0.45;
+      p.vy = 0.35 + Math.random() * 0.85;
+      p.color = '#ffffff';
+      p.alpha = 0.45 + Math.random() * 0.45;
+      p.rotV = (Math.random() - 0.5) * 0.04;
+    } else if (kind === 1) {
+      p.size = 2 + Math.floor(Math.random() * 3);
+      p.vx = -0.35 + Math.random() * 0.2;
+      p.vy = 0.4 + Math.random() * 0.7;
+      p.color = PETAL_COLORS[(Math.random() * PETAL_COLORS.length) | 0];
+      p.alpha = 0.55 + Math.random() * 0.35;
+      p.rotV = 0.03 + Math.random() * 0.06;
+    } else {
+      p.size = 3 + Math.floor(Math.random() * 3);
+      p.vx = -0.55 + Math.random() * 0.35;
+      p.vy = 0.45 + Math.random() * 0.75;
+      p.color = LEAF_COLORS[(Math.random() * LEAF_COLORS.length) | 0];
+      p.alpha = 0.65 + Math.random() * 0.3;
+      p.rotV = 0.04 + Math.random() * 0.08;
+    }
+  }
+  return p;
+}
+
+function countAliveKind(weather, kind) {
+  let n = 0;
+  for (const p of weather.particles) if (p.alive && p.kind === kind) n++;
+  return n;
+}
+
+function fireflyTargetCount() {
+  // Afternoon sparse → dusk denser within summer blend toward autumn
+  const { i0, t, p } = seasonBlend();
+  let dusk = 0.25;
+  if (i0 === 2) dusk = 0.25 + t * 0.75;
+  else if (seasonIndex() === 2) dusk = 0.55;
+  // Near end of world / evening autumn approach still summer-ish progress
+  if (p > 0.72 && p < 0.9) dusk = Math.max(dusk, (p - 0.72) / 0.18);
+  const cap = weatherCap(2);
+  return Math.max(3, Math.round(cap * (0.3 + 0.7 * Math.min(1, dusk))));
+}
+
+function updateWeather(dt) {
+  if (!state?.weather) return;
+  const weather = state.weather;
+  const target = seasonIndex();
+
+  if (target !== weather.kind) {
+    weather.prevKind = weather.kind;
+    weather.fadeOut = 1;
+    weather.kind = target;
+    weather.fadeIn = 0;
+  }
+
+  if (weather.fadeIn < 1) {
+    weather.fadeIn = Math.min(1, weather.fadeIn + dt / WEATHER_FADE_MS);
+  }
+  if (weather.fadeOut > 0) {
+    weather.fadeOut = Math.max(0, weather.fadeOut - dt / WEATHER_FADE_MS);
+    if (weather.fadeOut <= 0) weather.prevKind = -1;
+  }
+
+  const f = dt / 16.67;
+  const want = weather.kind === 2 ? fireflyTargetCount() : weatherCap(weather.kind);
+  // Ramp spawn with fade-in so new season eases in
+  const spawnWant = Math.ceil(want * (0.25 + 0.75 * weather.fadeIn));
+  let alive = countAliveKind(weather, weather.kind);
+  // Seed a few per frame until at cap (subtle, never burst-fill)
+  let budget = isMobileWeather() ? 1 : 2;
+  while (alive < spawnWant && budget-- > 0) {
+    spawnWeatherParticle(weather, weather.kind, true);
+    alive++;
+  }
+
+  for (const p of weather.particles) {
+    if (!p.alive) continue;
+    const isPrev = weather.prevKind >= 0 && p.kind === weather.prevKind;
+    const isCur = p.kind === weather.kind;
+    if (!isPrev && !isCur) {
+      p.alive = false;
+      continue;
+    }
+
+    p.phase += dt * 0.0025 * p.sway;
+
+    if (p.kind === 2) {
+      p.x += p.vx * f;
+      p.y += p.vy * f + Math.sin(p.phase) * 0.12 * f;
+      p.vx += (Math.random() - 0.5) * 0.02 * f;
+      p.vy += (Math.random() - 0.5) * 0.015 * f;
+      p.vx *= 0.99;
+      p.vy *= 0.99;
+      // Keep near grass belt
+      const yMin = GROUND_Y - 110;
+      const yMax = GROUND_Y - 8;
+      if (p.y < yMin) p.y = yMin;
+      if (p.y > yMax) p.y = yMax;
+      if (p.x < -10) p.x = W + 5;
+      if (p.x > W + 10) p.x = -5;
+      p.alpha = 0.2 + 0.75 * (0.5 + 0.5 * Math.sin(p.phase * 1.7));
+    } else if (p.grounded) {
+      p.groundT += dt;
+      if (p.groundT > 450 + (p.size | 0) * 80) {
+        p.fade -= dt / 500;
+        if (p.fade <= 0) p.alive = false;
+      }
+    } else {
+      // Wind sway
+      const wind = Math.sin(p.phase) * (p.kind === 0 ? 0.55 : 0.9);
+      p.x += (p.vx + wind) * f;
+      p.y += p.vy * f;
+      p.rot += p.rotV * f;
+      if (p.kind === 1) {
+        // Petals curve gently
+        p.vx += Math.sin(p.phase * 0.7) * 0.012 * f;
+      }
+      if (p.kind === 3 && p.y + p.size >= GROUND_Y) {
+        p.y = GROUND_Y - p.size;
+        p.vy = 0;
+        p.vx *= 0.3;
+        p.grounded = true;
+        p.groundT = 0;
+        p.rotV *= 0.2;
+      } else if (p.kind !== 3 && p.y > H + 12) {
+        // Recycle to top for falling types
+        p.x = Math.random() * (W + 40) - 20;
+        p.y = -8 - Math.random() * 30;
+        if (p.kind === 0) {
+          p.vy = 0.35 + Math.random() * 0.85;
+          p.size = 1 + Math.floor(Math.random() * 3);
+        } else if (p.kind === 1) {
+          p.vy = 0.4 + Math.random() * 0.7;
+          p.color = PETAL_COLORS[(Math.random() * PETAL_COLORS.length) | 0];
+        }
+      }
+      if (p.x < -30) p.x = W + 20;
+      if (p.x > W + 30) p.x = -20;
+    }
+
+    // Kill prev-season particles as fade-out completes
+    if (isPrev && weather.fadeOut <= 0.02) p.alive = false;
+  }
+
+  // Cap current kind if over (e.g. mobile resize)
+  let cur = countAliveKind(weather, weather.kind);
+  const cap = weather.kind === 2 ? fireflyTargetCount() : weatherCap(weather.kind);
+  if (cur > cap + 2) {
+    for (const p of weather.particles) {
+      if (cur <= cap) break;
+      if (p.alive && p.kind === weather.kind && !p.grounded) {
+        p.alive = false;
+        cur--;
+      }
+    }
+  }
+}
+
+function drawWeather() {
+  if (!state?.weather) return;
+  const weather = state.weather;
+  const letterClip =
+    state.ending?.letterShown && state.ending.letterLayout === 'side'
+      ? W * 0.62
+      : null;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+
+  for (const p of weather.particles) {
+    if (!p.alive) continue;
+    let mul = 1;
+    if (p.kind === weather.kind) mul = weather.fadeIn;
+    else if (p.kind === weather.prevKind) mul = weather.fadeOut;
+    else continue;
+    const a = p.alpha * p.fade * mul * 0.85;
+    if (a < 0.02) continue;
+    // Keep leaves/snow out from under the side letter (HTML is on top; still avoid clutter)
+    if (letterClip != null && p.x > letterClip) continue;
+
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    ctx.globalAlpha = a;
+
+    if (p.kind === 0) {
+      ctx.fillStyle = '#f5f8ff';
+      ctx.fillRect(x, y, p.size, p.size);
+      if (p.size >= 2) {
+        ctx.fillRect(x - 1, y + 1, p.size + 2, 1);
+      }
+    } else if (p.kind === 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      // Tiny petal diamond
+      ctx.fillRect(-1, -p.size / 2, 2, p.size);
+      ctx.fillRect(-p.size / 2, -1, p.size, 2);
+      ctx.restore();
+    } else if (p.kind === 2) {
+      ctx.fillStyle = p.color;
+      ctx.fillRect(x, y, p.size, p.size);
+      ctx.globalAlpha = a * 0.35;
+      ctx.fillRect(x - 1, y - 1, p.size + 2, p.size + 2);
+    } else {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      // Maple-ish pixel leaf
+      ctx.fillRect(-1, -p.size / 2, 2, p.size);
+      ctx.fillRect(-p.size / 2, -1, p.size, 2);
+      ctx.fillRect(-p.size / 2, -p.size / 2, 1, 1);
+      ctx.fillRect(p.size / 2 - 1, p.size / 2 - 1, 1, 1);
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
 }
 
 function showOverlay(title, body, { start = false, near = false, restart = false, ending = false } = {}) {
@@ -946,6 +1275,8 @@ function startGame(mode = 'normal') {
   state = createState(mode);
   hideOverlay();
   resetEndingLetterDom();
+  // Fresh pool each run — never stack duplicate emitters
+  if (state.weather) resetWeather(state.weather, state.weather.kind);
   updateHud();
   // Resume same BGM instance — do not rewind on restart or ending return
   ensureBgmPlaying();
@@ -1547,7 +1878,10 @@ function resolvePlatforms(p, prevBottom) {
 }
 
 function update(dt) {
-  if (!state || !state.running) return;
+  if (!state) return;
+  // Weather keeps animating through the frozen hug ending
+  updateWeather(dt);
+  if (!state.running) return;
   state.now = performance.now();
   const p = state.player;
   const endingActive = state.ending.phase !== 'idle';
@@ -2114,9 +2448,10 @@ function render() {
     ctx.fillRect(0, 0, W, H);
     return;
   }
-  // Layer: season bg → ground → memories → platforms → props → characters
+  // Layer: season bg → ground → weather → memories/boards → props → characters → UI
   drawSeasonBackground();
   drawGround();
+  drawWeather();
   drawMemories();
   drawCoupleBoards();
   drawPlatforms();
