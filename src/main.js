@@ -1,7 +1,19 @@
 /**
- * 002couple — visual redesign (gameplay preserved)
- * Memories = large street billboards. Scale by opaque content bounds.
- * Characters: shared body-height scale + per-image foot anchors (no pad-as-feet).
+ * 002couple — side scroller
+ *
+ * ROLE LOCK (do not swap sprites or controls):
+ *   볼떵이 = PLAYER only
+ *     cream face + forehead mark, white shirt, dark tie, black pants
+ *     keyboard/touch move+jump, food, exercise; walks L→R
+ *     sprite: boltongi-walk-jump.png (+ exercise encounter sheets)
+ *   볼빵이 = ENDING NPC only (never player-controlled)
+ *     white face, pointed ears, curly bangs, yellow dress
+ *     waits at stage right; flowers behind → show front when approached
+ *     sprites: bolppangi-flowers-behind/front.png
+ *   포옹 시트 hug-4cut.png: 볼떵이 LEFT, 볼빵이 RIGHT (baked)
+ *
+ * One PLAYER_SCALE for idle/walk/jump/exercise/ending approach —
+ * never introduce a second larger 볼떵이 only for the ending.
  */
 
 import {
@@ -34,10 +46,10 @@ const CLOSE_STEP = 40;
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
 
 /**
- * Shared standing body height for 볼빵이 (head→feet).
- * Ears / flowers / dress flare are excluded from the match target.
+ * Shared standing body height (head→feet).
+ * Exclude ears / flower loft / dress flare from the match target.
  */
-const CHARACTER_BODY_H = Math.round(H * 0.235);
+const CHARACTER_BODY_H = Math.round(H * 0.245);
 
 const PLAYER_CELL = { cols: 5, rows: 3, fw: 323, fh: 323 };
 /** Per-frame foot/body metrics in cell pixels (idle frame 0 is scale reference). */
@@ -59,22 +71,14 @@ const PLAYER_FRAMES = [
   { footY: 299, headTop: 62, bodyH: 238, bodyCx: 125, torsoW: 198, headW: 136 },
 ];
 const PLAYER_REF = PLAYER_FRAMES[0];
-/** Solid body height (drop-shadow under paws excluded). */
-const BOL_REF_BODY_H = 981;
-const BOL_SCALE = CHARACTER_BODY_H / BOL_REF_BODY_H;
-/** Body-height match to 볼빵이 (+10% after dress/ears excluded from the target). */
-const PLAYER_SCALE = (CHARACTER_BODY_H / PLAYER_REF.bodyH) * 1.1;
-const PLAYER_H = Math.round(PLAYER_REF.bodyH * PLAYER_SCALE);
-const PLAYER_W = Math.round(PLAYER_REF.torsoW * PLAYER_SCALE * 0.82);
 
-/** 볼빵이 — scale from behind pose body (flowers excluded from scale match). */
-const BOL = {
+/** 볼빵이 NPC — scale from behind-pose solid body (flowers excluded). */
+const BOLPPANGI = {
   behind: {
     key: 'bolBehind',
     fw: 1254,
     fh: 1254,
-    // Solid paw line — NOT the soft drop-shadow tip (was +13px → false float)
-    footY: 1119,
+    footY: 1119, // solid paws, not drop-shadow tip
     headTop: 139,
     bodyH: 981,
     bodyCx: 632,
@@ -93,19 +97,24 @@ const BOL = {
     headW: 553,
   },
 };
+const BOLPPANGI_SCALE = CHARACTER_BODY_H / BOLPPANGI.behind.bodyH;
+/** Same scale for every 볼떵이 draw (idle/walk/jump/exercise/ending approach). */
+const PLAYER_SCALE = CHARACTER_BODY_H / PLAYER_REF.bodyH;
+const PLAYER_H = Math.round(PLAYER_REF.bodyH * PLAYER_SCALE);
+const PLAYER_W = Math.round(PLAYER_REF.torsoW * PLAYER_SCALE * 0.82);
 
 const HUG_CELL = { cols: 4, rows: 1, fw: 543, fh: 724 };
-/**
- * Pair sheet — scale so frame0 character body height ≈ player/bol body world height.
- * Do not fit the full pair width to one character width.
- */
+/** Hug plate: 볼떵이 left, 볼빵이 right. Scale from frame0 body; keep pose height changes. */
 const HUG_FRAMES = [
   { footY: 525, headTop: 251, bodyH: 275, bodyCx: 281, torsoW: 438 },
   { footY: 526, headTop: 224, bodyH: 303, bodyCx: 269, torsoW: 483 },
   { footY: 529, headTop: 243, bodyH: 287, bodyCx: 275, torsoW: 406 },
   { footY: 529, headTop: 157, bodyH: 373, bodyCx: 265, torsoW: 382 },
 ];
-const HUG_SCALE = PLAYER_H / HUG_FRAMES[0].bodyH;
+const HUG_SCALE = CHARACTER_BODY_H / HUG_FRAMES[0].bodyH;
+// Back-compat aliases used in ending state
+const BOL = BOLPPANGI;
+const BOL_SCALE = BOLPPANGI_SCALE;
 
 const ASSETS = {
   playerSheet: 'boltongi-walk-jump.png',
@@ -386,8 +395,9 @@ function createState(mode = 'normal') {
     return betweenSpot(memories, afterIndex, 0.5) - 40;
   }
 
-  const exH = Math.round(PLAYER_H * 1.15);
-  const exW = Math.round(exH * 0.85);
+  // Encounter sheets include 볼떵이 — box sized so he reads at PLAYER_SCALE (not a second body size)
+  const exH = Math.round(PLAYER_H * 1.2);
+  const exW = Math.round(exH * 0.9);
   const exercises = [
     {
       id: 'tm',
@@ -462,10 +472,12 @@ function createState(mode = 'normal') {
     foods,
     exercises,
     ending: {
+      // Sequence: approach → flower (볼빵이 shows) → step closer → hug 4-cut
+      // 볼빵이 = NPC at bolX (no input). 볼떵이 = same player + PLAYER_SCALE.
       phase: 'idle',
-      bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85),
+      bolX: wedding.cx + Math.round(CHARACTER_BODY_H * 0.85), // 볼빵이 feet X
       bolFeetY: GROUND_Y,
-      bolScale: BOL_SCALE,
+      bolScale: BOLPPANGI_SCALE,
       playerScale: PLAYER_SCALE,
       hugScale: HUG_SCALE,
       weddingCx: wedding.cx,
@@ -624,12 +636,13 @@ function updateEnding(dt) {
     return;
   }
 
-  // Keep both characters locked to the same ground plane during ending
+  // 볼떵이 + 볼빵이 share GROUND_Y; 볼빵이 never receives move input
   p.vy = 0;
   p.onGround = true;
   p.y = GROUND_Y - p.h;
   e.bolFeetY = GROUND_Y;
 
+  // 1) 볼떵이 approaches right toward waiting 볼빵이
   if (e.phase === 'approach') {
     const target = e.bolX - Math.round(CHARACTER_BODY_H * 0.95);
     if (p.x < target) {
@@ -645,7 +658,7 @@ function updateEnding(dt) {
       p.x = target;
       p.anim = 'idle';
       p.frame = 0;
-      e.phase = 'flower';
+      e.phase = 'flower'; // 2) 볼빵이 shows flowers
       e.timer = 0;
       e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
     }
@@ -655,7 +668,7 @@ function updateEnding(dt) {
   if (e.phase === 'flower') {
     e.timer += dt;
     if (e.timer >= FLOWER_HOLD_MS) {
-      e.phase = 'step';
+      e.phase = 'step'; // 3) 볼떵이 steps closer
       e.timer = 0;
     }
     return;
@@ -673,11 +686,10 @@ function updateEnding(dt) {
       }
     } else {
       p.x = target;
-      e.phase = 'hug';
+      e.phase = 'hug'; // 4) hug 4-cut — 볼떵이 left / 볼빵이 right
       e.hideIndividuals = true;
       e.hugFrame = 0;
       e.hugTimer = 0;
-      // Hug is a two-person plate — anchor between left(볼떵이) and right(볼빵이)
       e.hugAnchorX = (p.x + p.w / 2 + e.bolX) / 2;
     }
     return;
@@ -983,6 +995,7 @@ function drawExercises() {
   }
 }
 
+/** Draw 볼떵이 (player) — always PLAYER_SCALE for every anim/state. */
 function drawPlayer() {
   if (state.ending.hideIndividuals) return;
   const p = state.player;
@@ -1004,7 +1017,7 @@ function drawPlayer() {
     PLAYER_CELL.rows,
     frame,
     meta,
-    PLAYER_SCALE,
+    PLAYER_SCALE, // same scale in ending approach — no separate "big 볼떵이"
     feetX,
     feetY,
     cam,
@@ -1012,10 +1025,15 @@ function drawPlayer() {
   );
 }
 
+/**
+ * Draw 볼빵이 NPC and (during hug) the pair plate.
+ * 볼빵이 is never player-controlled.
+ */
 function drawEndingChars() {
   const e = state.ending;
   const cam = state.cameraX;
   if (e.hideIndividuals) {
+    // hug-4cut: 볼떵이 left, 볼빵이 right — feet on ground, size ≈ standing pair
     const meta = HUG_FRAMES[e.hugFrame] || HUG_FRAMES[0];
     drawSheetAtFeet(
       images.hug,
@@ -1031,15 +1049,23 @@ function drawEndingChars() {
     );
     return;
   }
-  // Only draw 볼빵이 when near ending zone (always present at end, world-fixed)
+  // 볼빵이 waits at stage right (world-fixed). No move input.
   const wedding = state.memories[state.memories.length - 1];
   if (state.cameraX + W < wedding.cx - W * 0.6) return;
 
+  // flowers behind until flower/step; then show bouquet in front
   const useFront =
     e.phase === 'flower' || e.phase === 'step' || e.phase === 'hug' || e.phase === 'done';
-  const meta = useFront ? BOL.front : BOL.behind;
+  const meta = useFront ? BOLPPANGI.front : BOLPPANGI.behind;
   const img = images[meta.key];
-  drawImageAtFeet(img, meta, e.bolScale || BOL_SCALE, e.bolX, e.bolFeetY || GROUND_Y, cam);
+  drawImageAtFeet(
+    img,
+    meta,
+    e.bolScale || BOLPPANGI_SCALE,
+    e.bolX,
+    e.bolFeetY || GROUND_Y,
+    cam,
+  );
 }
 
 function drawMsgs() {
@@ -1187,7 +1213,7 @@ async function boot() {
   bindInput();
   bindAudioUi();
   // Start button unlocks audio (browser policy) and begins the run
-  showOverlay('002couple', '볼떵이가 볼빵이에게 가는 길', {
+  showOverlay('002couple', '볼떵이(플레이어)가 볼빵이에게 가는 길', {
     start: true,
     near: true,
     restart: false,
@@ -1202,10 +1228,16 @@ async function boot() {
     scales: {
       characterBodyH: CHARACTER_BODY_H,
       playerScale: PLAYER_SCALE,
-      bolScale: BOL_SCALE,
+      bolppangiScale: BOLPPANGI_SCALE,
+      bolScale: BOLPPANGI_SCALE,
       hugScale: HUG_SCALE,
       playerH: PLAYER_H,
       playerW: PLAYER_W,
+    },
+    roles: {
+      player: '볼떵이',
+      endingNpc: '볼빵이',
+      hug: '볼떵이 left / 볼빵이 right',
     },
     snapshot: () =>
       state
@@ -1229,7 +1261,7 @@ async function boot() {
             scales: {
               characterBodyH: CHARACTER_BODY_H,
               playerScale: PLAYER_SCALE,
-              bolScale: BOL_SCALE,
+              bolppangiScale: BOLPPANGI_SCALE,
               hugScale: HUG_SCALE,
             },
             memories: state.memories.map((m) => ({
