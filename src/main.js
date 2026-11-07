@@ -31,8 +31,8 @@ import {
 } from './audio.js';
 
 /** Live build stamp — must appear on published site after refresh. */
-export const BUILD_VERSION = '20261107-1930-boss';
-export const BUILD_EDITED_AT = '2026-11-07T19:30+09:00';
+export const BUILD_VERSION = '20261107-2055-boards';
+export const BUILD_EDITED_AT = '2026-11-07T20:55+09:00';
 
 const W = 960;
 const H = 540;
@@ -203,6 +203,16 @@ const ASSETS = {
   dongbang: 'memory-dongbangshinki.png',
   gaenari: 'memory-gaenari-apt.png',
   wedding: 'wedding-billboard.png',
+  coupleBoard01: 'couple-board-01-selfie.png',
+  coupleBoard02: 'couple-board-02-summerfesta.png',
+  coupleBoard03: 'couple-board-03-anniversary10.png',
+  coupleBoard04: 'couple-board-04-outdoor.png',
+  coupleBoard05: 'couple-board-05-cafe.png',
+  coupleBoard06: 'couple-board-06-spring.png',
+  coupleBoard07: 'couple-board-07-park.png',
+  coupleBoard08: 'couple-board-08-park2.png',
+  coupleBoard09: 'couple-board-09-willow.png',
+  coupleBoard10: 'couple-board-10-car.png',
   bolBehind: 'bolppangi-flowers-behind.png',
   bolFront: 'bolppangi-flowers-front.png',
   hug: 'hug-4cut.png',
@@ -236,6 +246,16 @@ const BOUNDS = {
   dongbang: { ox: 205, oy: 74, ow: 707, oh: 1286 },
   gaenari: { ox: 55, oy: 28, ow: 1420, oh: 964 },
   wedding: { ox: 102, oy: 23, ow: 818, oh: 1492 },
+  coupleBoard01: { ox: 123, oy: 20, ow: 1008, oh: 1215 },
+  coupleBoard02: { ox: 44, oy: 0, ow: 1181, oh: 1232 },
+  coupleBoard03: { ox: 90, oy: 19, ow: 1100, oh: 1186 },
+  coupleBoard04: { ox: 83, oy: 8, ow: 1089, oh: 1234 },
+  coupleBoard05: { ox: 179, oy: 4, ow: 1111, oh: 1056 },
+  coupleBoard06: { ox: 263, oy: 10, ow: 1147, oh: 921 },
+  coupleBoard07: { ox: 53, oy: 18, ow: 980, oh: 1412 },
+  coupleBoard08: { ox: 62, oy: 16, ow: 1130, oh: 1223 },
+  coupleBoard09: { ox: 40, oy: 23, ow: 1006, oh: 1399 },
+  coupleBoard10: { ox: 103, oy: 14, ow: 1048, oh: 1221 },
   bolBehind: { ox: 165, oy: 129, ow: 928, oh: 1004 },
   bolFront: { ox: 46, oy: 59, ow: 1187, oh: 1095 },
   chicken: { ox: 298, oy: 131, ow: 852, oh: 782 },
@@ -273,6 +293,23 @@ const MEMORY_DEFS = [
   { id: 'wedding', key: 'wedding', label: '결혼사진', kind: 'ending', hFrac: 0.62 },
 ];
 
+/**
+ * Extra couple photo billboards — decorative only (no collision, not HUD labels).
+ * Placed in quieter gaps (off villain centers) so boards don't overlap memories.
+ */
+const COUPLE_BOARD_DEFS = [
+  { id: 'cb01', key: 'coupleBoard01', after: 0, t: 0.28, hFrac: 0.62 },
+  { id: 'cb02', key: 'coupleBoard02', after: 1, t: 0.72, hFrac: 0.6 },
+  { id: 'cb03', key: 'coupleBoard03', after: 3, t: 0.28, hFrac: 0.6 },
+  { id: 'cb04', key: 'coupleBoard04', after: 4, t: 0.72, hFrac: 0.6 },
+  { id: 'cb05', key: 'coupleBoard05', after: 6, t: 0.28, hFrac: 0.58 },
+  { id: 'cb06', key: 'coupleBoard06', after: 8, t: 0.72, hFrac: 0.56 },
+  { id: 'cb07', key: 'coupleBoard07', after: 9, t: 0.28, hFrac: 0.64 },
+  { id: 'cb08', key: 'coupleBoard08', after: 12, t: 0.72, hFrac: 0.6 },
+  { id: 'cb09', key: 'coupleBoard09', after: 14, t: 0.28, hFrac: 0.64 },
+  { id: 'cb10', key: 'coupleBoard10', after: 15, t: 0.72, hFrac: 0.6 },
+];
+
 const MISSING_ASSETS = [];
 
 /** @type {Record<string, HTMLImageElement>} */
@@ -283,7 +320,6 @@ const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
 const hpLabel = document.getElementById('hpLabel');
-const zoneLabel = document.getElementById('zoneLabel');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlayTitle');
 const overlayBody = document.getElementById('overlayBody');
@@ -546,6 +582,40 @@ function buildMemories() {
   });
 }
 
+function buildCoupleBoards(memories) {
+  const boards = COUPLE_BOARD_DEFS.map((def) => {
+    const size = layoutSize(def.key, def.hFrac);
+    // Cap width so boards stay readable but don't swallow the whole gap
+    let w = size.w;
+    let h = size.h;
+    const maxW = Math.round(W * 0.55);
+    if (w > maxW) {
+      w = maxW;
+      const b = BOUNDS[def.key];
+      h = Math.round((b.oh / b.ow) * w);
+    }
+    return {
+      id: def.id,
+      key: def.key,
+      cx: betweenSpot(memories, def.after, def.t),
+      w,
+      h,
+      hFrac: def.hFrac,
+    };
+  });
+  // Ensure no two boards overlap horizontally (half-widths + padding)
+  boards.sort((a, b) => a.cx - b.cx);
+  for (let i = 1; i < boards.length; i++) {
+    const prev = boards[i - 1];
+    const cur = boards[i];
+    const minGap = prev.w / 2 + cur.w / 2 + 80;
+    if (cur.cx - prev.cx < minGap) {
+      cur.cx = prev.cx + minGap;
+    }
+  }
+  return boards;
+}
+
 function betweenSpot(memories, i, t = 0.5) {
   if (i < 0) return memories[0].cx - SPACING * 0.45;
   if (i >= memories.length - 1) return memories[memories.length - 1].cx + SPACING * 0.4;
@@ -557,6 +627,7 @@ let state;
 
 function createState(mode = 'normal') {
   const memories = buildMemories();
+  const coupleBoards = buildCoupleBoards(memories);
   const wedding = memories[memories.length - 1];
   const near = mode === 'nearEnding';
   const startMem = memories[0];
@@ -747,6 +818,7 @@ function createState(mode = 'normal') {
     cameraX: Math.max(0, playerStartX - W * 0.28),
     cameraLock: false,
     memories,
+    coupleBoards,
     worldEnd,
     platforms,
     checkpoints,
@@ -824,25 +896,9 @@ async function startFromButton(mode = 'normal') {
   startGame(mode);
 }
 
-function currentMemoryLabel() {
-  if (!state) return '';
-  let best = state.memories[0];
-  let bestD = Infinity;
-  const px = state.player.x + state.player.w / 2;
-  for (const m of state.memories) {
-    const d = Math.abs(m.cx - px);
-    if (d < bestD) {
-      bestD = d;
-      best = m;
-    }
-  }
-  return best.label;
-}
-
 function updateHud() {
   if (!state) return;
   hpLabel.innerHTML = heartsHtml(state.hearts);
-  zoneLabel.textContent = currentMemoryLabel();
 }
 
 /** Flat safe viewing strip in front of each memory — no exercise damage here. */
@@ -1685,6 +1741,23 @@ function drawMemories() {
   }
 }
 
+/** Couple photo stands — behind player, feet on ground, no hitboxes. */
+function drawCoupleBoards() {
+  if (!state.coupleBoards) return;
+  const cam = state.cameraX;
+  for (const board of state.coupleBoards) {
+    const img = images[board.key];
+    const b = BOUNDS[board.key];
+    if (!img || !b) continue;
+    const w = board.w;
+    const h = board.h;
+    const sx = board.cx - w / 2 - cam;
+    const sy = GROUND_Y - h;
+    if (sx + w < -40 || sx > W + 40) continue;
+    ctx.drawImage(img, b.ox, b.oy, b.ow, b.oh, Math.round(sx), Math.round(sy), w, h);
+  }
+}
+
 function drawPlatforms() {
   const cam = state.cameraX;
   for (const pl of state.platforms) {
@@ -1949,6 +2022,7 @@ function render() {
   drawSeasonBackground();
   drawGround();
   drawMemories();
+  drawCoupleBoards();
   drawPlatforms();
   drawFoods();
   drawExercises();
