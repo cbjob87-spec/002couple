@@ -1,0 +1,182 @@
+{
+  "description": "UUID → readable asset name mapping for 002couple game",
+  "sourceDir": "internal/assets/",
+  "publicDir": "public/assets/",
+  "mapping": [
+    {
+      "uuid": "f54cf262-8a3b-4bf4-83aa-566628efa226.png",
+      "file": "boltongi-walk-jump.png",
+      "purpose": "볼떵이 걷기·점프 시트 (3×5, 15프레임)"
+    },
+    {
+      "uuid": "1512a162-cd61-46d0-a9d7-9a25c14acf3b.png",
+      "file": "exercise-treadmill-encounter.png",
+      "purpose": "볼떵이 + 러닝머신 악당 운동 (8프레임)"
+    },
+    {
+      "uuid": "1a1e105e-4655-41ef-9737-384c78ee2c37.png",
+      "file": "exercise-bike-encounter.png",
+      "purpose": "볼떵이 + 사이클 악당 운동 (7프레임)"
+    },
+    {
+      "uuid": "cf95dcc2-6994-4400-abfb-fccb34c33167.png",
+      "file": "bike-villain.png",
+      "purpose": "사이클 머신 악당 단독"
+    },
+    {
+      "uuid": "b4a11025-7ccc-4678-b0a3-11b41c39578e.png",
+      "file": "treadmill-villain.png",
+      "purpose": "러닝머신 머신 악당 단독"
+    },
+    {
+      "uuid": "15f0984d-dd7c-46bc-9b76-0c70052bcbc1.png",
+      "file": "food-chicken.png",
+      "purpose": "치킨"
+    },
+    {
+      "uuid": "12db2a7b-0208-4d3e-9dc2-c791804821db.png",
+      "file": "food-pizza.png",
+      "purpose": "피자"
+    },
+    {
+      "uuid": "0e3d6822-0bd8-43fc-952c-06ad652e7078.png",
+      "file": "food-burger.png",
+      "purpose": "햄버거"
+    },
+    {
+      "uuid": "4b3ef124-cfbc-4b05-8715-6448e6e44b64.png",
+      "file": "drop-tower.png",
+      "purpose": "드롭타워"
+    },
+    {
+      "uuid": "1bb6ec9b-6b74-485c-9b28-63153e515667.png",
+      "file": "sign-mcdonalds.png",
+      "purpose": "맥도날드 간판"
+    },
+    {
+      "uuid": "17d27aaf-44cc-4e95-81eb-0516ade012b5.png",
+      "file": "billboard-banchangko.png",
+      "purpose": "전광판 · 반창꼬"
+    },
+    {
+      "uuid": "f9ab1422-a3b1-4efa-9321-468f202198a0.png",
+      "file": "billboard-lesmiserables.png",
+      "purpose": "전광판 · 레미제라블"
+    },
+    {
+      "uuid": "b058251c-4750-412b-b304-9e0202ca0f87.png",
+      "file": "station-gosok.png",
+      "purpose": "역 표지 · 고속터미널"
+    },
+    {
+      "uuid": "b08f994b-e440-4801-a1c8-e09425f064d0.png",
+      "file": "billboard-wolfboy.png",
+      "purpose": "전광판 · 늑대소년"
+    },
+    {
+      "uuid": "fb834212-a61a-45b6-9472-6715de800fa6.png",
+      "file": "billboard-samsung.png",
+      "purpose": "전광판 · 삼성"
+    },
+    {
+      "uuid": "c02b0d34-58ae-40e2-8264-6571ae5f0b68.png",
+      "file": "cu-store.png",
+      "purpose": "CU 매장"
+    },
+    {
+      "uuid": "ab51fbe4-cf5e-4b54-b96c-53176398d756.png",
+      "file": "billboard-7throom.png",
+      "purpose": "전광판 · 7번방의 선물"
+    },
+    {
+      "uuid": "354e2ff0-73e7-4227-b4e0-1a05b1dd7d24.png",
+      "file": "billboard-sealife.png",
+      "purpose": "전광판 · SEA LIFE"
+    },
+    {
+      "uuid": "473cebb6-d594-4a25-bcb6-740538350395.png",
+      "file": "billboard-lv.png",
+      "purpose": "전광판 · Louis Vuitton"
+    },
+    {
+      "uuid": "ea77438a-16a5-4014-9bd1-c9a7deb8da93.png",
+      "file": "memory-dongbangshinki.png",
+      "purpose": "동방신기 메모리 (정장 2인 포트레이트). bb05cdea-… 와 동일 md5."
+    },
+    {
+      "uuid": "bb05cdea-4a4b-44ce-98b6-133f94d35b74.png",
+      "file": "memory-dongbangshinki.png",
+      "purpose": "동방신기 재전송분 — ea77438a 와 동일 파일"
+    },
+    {
+      "uuid": "6889f38f-4174-4524-b038-32b68ea387f8.png",
+      "file": "billboard-abouttime.png",
+      "purpose": "전광판 · 어바웃 타임"
+    },
+    {
+      "uuid": "0b26f21b-900d-49db-8dae-a8ddd742222d.png",
+      "file": "sign-toetmaru-coffee.png",
+      "purpose": "간판 · 툇마루커피"
+    },
+    {
+      "uuid": "b202d9c8-35ad-4323-894f-c52ee756689a.png",
+      "file": "billboard-paragliding.png",
+      "purpose": "전광판 · 패러글라이딩"
+    },
+    {
+      "uuid": "1956a9e3-900c-4f74-9ba7-c2508f401890.png",
+      "file": "billboard-mrsunshine.png",
+      "purpose": "전광판 · 미스터 션샤인"
+    },
+    {
+      "uuid": "0fa930e7-e8a1-4e2d-a7fa-5eebb58297dc.png",
+      "file": "billboard-extremejob.png",
+      "purpose": "전광판 · 극한직업"
+    },
+    {
+      "uuid": "7addc766-9c0e-483a-a575-a9ebcc990738.png",
+      "file": "billboard-cyrano.png",
+      "purpose": "전광판 · 시라노"
+    },
+    {
+      "uuid": "ae168f8f-8bc0-462f-8dce-4772b91d94cd.png",
+      "file": "wedding-billboard.png",
+      "purpose": "결혼사진 전광판 (엔딩 배경)"
+    },
+    {
+      "uuid": "5ebffc91-f892-4816-bbe7-42c2bd88a11d.png",
+      "file": "bolppangi-flowers-behind.png",
+      "purpose": "꽃 뒤에 숨긴 볼빵이"
+    },
+    {
+      "uuid": "7971198c-0040-4480-a74b-1b8f2e6e7b55.png",
+      "file": "bolppangi-flowers-front.png",
+      "purpose": "꽃 앞으로 보여주는 볼빵이"
+    },
+    {
+      "uuid": "18093a4d-d29f-4b32-b81e-d89ac61bcacf.png",
+      "file": "hug-4cut.png",
+      "purpose": "최신 포옹 4컷 (우선)"
+    },
+    {
+      "uuid": "b1dba86e-ba3d-4ded-866c-2dca02adae87.png",
+      "file": "bg-winter.png",
+      "purpose": "시즌 배경 · 겨울 아침 (스테이지 초반)"
+    },
+    {
+      "uuid": "d57947dd-6813-462c-8d82-a94c5a26006c.png",
+      "file": "bg-spring.png",
+      "purpose": "시즌 배경 · 봄 낮"
+    },
+    {
+      "uuid": "acd64e99-2d97-48fe-bb1b-72f0d93bf674.png",
+      "file": "bg-summer.png",
+      "purpose": "시즌 배경 · 여름 오후"
+    },
+    {
+      "uuid": "7e69c489-d201-4542-bd57-98ba5bfbb811.png",
+      "file": "bg-autumn.png",
+      "purpose": "시즌 배경 · 가을 저녁 (엔딩)"
+    }
+  ]
+}

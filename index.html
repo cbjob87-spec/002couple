@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>002couple · 볼떵이와 볼빵이</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">002</span>
+          <span class="brand-name">couple</span>
+        </div>
+        <p class="tagline">볼떵이가 볼빵이에게 가는 길</p>
+      </header>
+
+      <div class="stage-wrap">
+        <canvas id="game" width="960" height="540" aria-label="002couple game canvas"></canvas>
+        <div id="hud" class="hud">
+          <div class="hud-row">
+            <span id="hpLabel">하트 ♥♥♥</span>
+            <span id="zoneLabel">고속터미널</span>
+          </div>
+          <div class="hint">← → 이동 · Z/스페이스 점프 · R 재시작</div>
+        </div>
+
+        <div id="touchPad" class="touch-pad" aria-hidden="false">
+          <div class="touch-left">
+            <button type="button" id="padLeft" class="pad-btn" aria-label="왼쪽">◀</button>
+            <button type="button" id="padRight" class="pad-btn" aria-label="오른쪽">▶</button>
+          </div>
+          <button type="button" id="padJump" class="pad-btn pad-jump" aria-label="점프">점프</button>
+        </div>
+
+        <div id="overlay" class="overlay hidden" role="dialog" aria-modal="true">
+          <div class="overlay-card">
+            <h1 id="overlayTitle">준비됐나요?</h1>
+            <p id="overlayBody">볼떵이가 볼빵이를 만나러 갑니다.</p>
+            <div class="overlay-actions">
+              <button id="btnStart" type="button" class="hidden">시작하기</button>
+              <button id="btnNearEnding" type="button" class="ghost hidden" title="개발용 테스트">
+                엔딩 근처에서 시작 (테스트)
+              </button>
+              <button id="btnRestart" type="button" class="ghost hidden">처음부터</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <span>키보드 · 터치 지원 · 픽셀 사이드 스크롤러</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,309 @@
+:root {
+  --ink: #1c2430;
+  --paper: #f7efe2;
+  --sky-top: #7ec8e8;
+  --sky-mid: #b8dff0;
+  --sky-bot: #efe4c8;
+  --ground: #5a8f4a;
+  --ground-deep: #3e6a34;
+  --accent: #e85d4c;
+  --accent-soft: #f4a09a;
+  --panel: rgba(28, 36, 48, 0.78);
+  --panel-edge: rgba(255, 255, 255, 0.14);
+  --shadow: 0 18px 40px rgba(20, 30, 40, 0.28);
+  --radius: 18px;
+  --font-display: "Gaegu", "Comic Sans MS", cursive;
+  --font-pixel: "Press Start 2P", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, #ffe9c8 0%, transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, #c7ebff 0%, transparent 50%),
+    linear-gradient(180deg, #d9eef8 0%, #f3e7d2 55%, #e8d7bc 100%);
+  color: var(--ink);
+  font-family: var(--font-display);
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px 40px;
+}
+
+#app {
+  width: min(1040px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 6px;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.brand-mark {
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+.brand-name {
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.tagline {
+  margin: 0;
+  font-size: 22px;
+  opacity: 0.78;
+}
+
+.stage-wrap {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  background: #000;
+  vertical-align: top;
+}
+
+.hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: 12px 14px 8px;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent);
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.hp-label {
+  margin-right: 6px;
+}
+
+.hp-full,
+.hp-empty {
+  display: inline-block;
+  margin-left: 2px;
+  font-size: 22px;
+  line-height: 1;
+  font-family: "Segoe UI Symbol", "Apple Color Emoji", sans-serif;
+}
+
+.hp-full {
+  color: #ff4d5e;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.hp-empty {
+  color: rgba(255, 255, 255, 0.22);
+  text-shadow: none;
+  -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.9);
+}
+
+.hint {
+  margin-top: 2px;
+  font-size: 16px;
+  opacity: 0.85;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 220, 180, 0.22), transparent 45%),
+    rgba(12, 18, 28, 0.62);
+  backdrop-filter: blur(2px);
+  padding: 20px;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.overlay-card {
+  width: min(460px, 100%);
+  background: linear-gradient(165deg, #fff8ee, #f3e2cc);
+  color: var(--ink);
+  border-radius: 22px;
+  padding: 28px 24px 22px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  text-align: center;
+}
+
+.overlay-card h1 {
+  margin: 0 0 8px;
+  font-size: 40px;
+  line-height: 1.1;
+}
+
+.overlay-card p {
+  margin: 0 0 18px;
+  font-size: 22px;
+  line-height: 1.35;
+  opacity: 0.88;
+}
+
+.overlay-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+button {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 16px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+button:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid rgba(28, 36, 48, 0.18);
+}
+
+button.hidden {
+  display: none;
+}
+
+.footer {
+  font-size: 18px;
+  opacity: 0.65;
+  padding: 0 6px;
+}
+
+.touch-pad {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 14px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.touch-left {
+  display: flex;
+  gap: 10px;
+}
+
+.pad-btn {
+  pointer-events: auto;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(20, 28, 40, 0.45);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  backdrop-filter: blur(4px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pad-jump {
+  width: 88px;
+  font-size: 22px;
+}
+
+.pad-btn:active {
+  background: rgba(232, 93, 76, 0.75);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .touch-pad {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .brand-name {
+    font-size: 34px;
+  }
+
+  .tagline {
+    font-size: 18px;
+  }
+
+  .hud-row {
+    font-size: 18px;
+  }
+
+  .hint {
+    font-size: 14px;
+  }
+
+  .touch-pad {
+    opacity: 1;
+  }
+}
