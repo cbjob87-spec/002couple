@@ -97,6 +97,24 @@ body {
   vertical-align: top;
 }
 
+.build-stamp {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 5;
+  pointer-events: none;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.45);
+  padding: 4px 6px;
+  border-radius: 4px;
+  text-shadow: none;
+  max-width: 46%;
+  word-break: break-all;
+}
+
 .hud {
   position: absolute;
   left: 0;

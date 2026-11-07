@@ -29,20 +29,24 @@ import {
   audioNeededBgmLabel,
 } from './audio.js';
 
+/** Live build stamp — must appear on published site after refresh. */
+export const BUILD_VERSION = '20261107-1840-plat3';
+export const BUILD_EDITED_AT = '2026-11-07T18:40+09:00';
+
 const W = 960;
 const H = 540;
 /** Align with season BG road (not mid-air above the painted street). */
 const GROUND_Y = Math.round(H * 0.865);
 const BILLBOARD_H = Math.round(H * 0.6); // 55–65% of H
-const MOVE_SPEED = 3.8;
-const GRAVITY = 0.42;
-const JUMP_V_MAX = -16.2; // clears tallest villain + 0.5× body (verified)
-const JUMP_V_MIN = -9.2; // tap jump
-const JUMP_CUT_MULT = 0.42; // release early → short hop
+const MOVE_SPEED = 3.9;
+/** Gravity per ~16.67ms frame; scaled by dt/16.67 for stable hang. */
+const GRAVITY = 0.55;
+const JUMP_V_MAX = -17.5; // hang ~1.05s @60fps; peak ≥ villain+0.5 body
+const JUMP_CUT_MULT = 0.4; // release early → short hop
 const COYOTE_MS = 100;
 const JUMP_BUFFER_MS = 120;
 const AIR_CONTROL = 1.0; // full L/R in air
-const PATROL_SPEED_FRAC = 0.38; // 30–45% of player speed
+const PATROL_SPEED_FRAC = 0.4; // 30–45% of player speed
 const INVINCIBLE_MS = 2000; // after exercise eject
 const MAX_HEARTS = 3;
 const FLOWER_HOLD_MS = 900;
@@ -50,14 +54,15 @@ const HUG_FRAME_MS = 700;
 const ENDING_TRIGGER_DIST = 160;
 const CLOSE_STEP = 40;
 const SPACING = Math.round(W * 1.25); // 1.1–1.4×W
-/** Theoretical max jump height (px) from JUMP_V_MAX + GRAVITY. */
+/** Peak jump height (px) from JUMP_V_MAX + GRAVITY (frame-normalized). */
 const MAX_JUMP_H = (JUMP_V_MAX * JUMP_V_MAX) / (2 * GRAVITY);
+const JUMP_HANG_S = (2 * Math.abs(JUMP_V_MAX)) / GRAVITY / 60;
 
 /**
- * Shared standing body height (head→feet).
+ * Shared standing body height (head→feet opaque).
  * Exclude ears / flower loft / dress flare from the match target.
  */
-const CHARACTER_BODY_H = Math.round(H * 0.245);
+const CHARACTER_BODY_H = Math.round(H * 0.255);
 
 const PLAYER_CELL = { cols: 5, rows: 3, fw: 323, fh: 323 };
 /** Per-frame foot/body metrics in cell pixels (idle frame 0 is scale reference). */
@@ -107,11 +112,13 @@ const BOLPPANGI = {
 };
 const BOLPPANGI_SCALE = CHARACTER_BODY_H / BOLPPANGI.behind.bodyH;
 /**
- * Same scale for every 볼떵이 draw (idle/walk/jump/exercise/ending approach).
- * +20% vs raw body match so head/torso read equal next to 볼빵이 dress mass
- * (still one scale — not an ending-only oversized double).
+ * Match opaque body height to 볼빵이, then scale face width to hers
+ * (dress/ears excluded). ONE scale for walk/jump/exercise/ending.
  */
-const PLAYER_SCALE = (CHARACTER_BODY_H / PLAYER_REF.bodyH) * 1.2;
+const BODY_MATCH = CHARACTER_BODY_H / PLAYER_REF.bodyH;
+const FACE_MATCH =
+  (BOLPPANGI.behind.headW * BOLPPANGI_SCALE) / Math.max(1, PLAYER_REF.headW);
+const PLAYER_SCALE = Math.max(BODY_MATCH, FACE_MATCH) * 1.18;
 const PLAYER_H = Math.round(PLAYER_REF.bodyH * PLAYER_SCALE);
 const PLAYER_W = Math.round(PLAYER_REF.torsoW * PLAYER_SCALE * 0.82);
 
@@ -1035,9 +1042,11 @@ function update(dt) {
     if (p.vy >= 0) p.jumping = false;
 
     const prevBottom = p.y + p.h;
-    p.vy += GRAVITY;
-    p.x += p.vx;
-    p.y += p.vy;
+    const gScale = dt / 16.67;
+    p.vy += GRAVITY * gScale;
+    // Keep horizontal step stable with dt so mobile 30/60fps both work
+    p.x += p.vx * gScale;
+    p.y += p.vy * gScale;
     p.x = Math.max(40, Math.min(state.worldEnd - p.w - 20, p.x));
 
     p.onGround = false;
@@ -1532,6 +1541,13 @@ function bindAudioUi() {
   syncAudioUi();
 }
 
+function paintBuildStamp() {
+  const el = document.getElementById('buildStamp');
+  if (el) {
+    el.textContent = `build ${BUILD_VERSION}\n${BUILD_EDITED_AT}`;
+  }
+}
+
 async function boot() {
   try {
     await loadAll();
@@ -1543,6 +1559,7 @@ async function boot() {
     });
     throw err;
   }
+  paintBuildStamp();
   bindInput();
   bindAudioUi();
   // Start button unlocks audio (browser policy) and begins the run
@@ -1558,6 +1575,7 @@ async function boot() {
     start: startFromButton,
     getState: () => state,
     missingAssets: MISSING_ASSETS,
+    build: { version: BUILD_VERSION, editedAt: BUILD_EDITED_AT },
     scales: {
       characterBodyH: CHARACTER_BODY_H,
       playerScale: PLAYER_SCALE,
@@ -1566,6 +1584,8 @@ async function boot() {
       hugScale: HUG_SCALE,
       playerH: PLAYER_H,
       playerW: PLAYER_W,
+      jumpHangS: JUMP_HANG_S,
+      maxJumpH: MAX_JUMP_H,
     },
     roles: {
       player: '볼떵이',
